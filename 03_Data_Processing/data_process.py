@@ -79,6 +79,7 @@ insurance_data['Historically_Adjusted_Loss_Cost'] = insurance_data['Loss_Cost'] 
 insurance_data['Claim_Status'] = 0
 insurance_data.loc[insurance_data['Total_Number_Claims_Current_Yr']>0,'Claim_Status'] = 1
 
+## Creating Features
 # creating Age
 insurance_data['Age'] = pd.to_datetime('2019-12-31').year - insurance_data['Date_Of_Birth'].dt.year
 
