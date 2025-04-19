@@ -143,3 +143,4 @@ insurance_data['Young_Bhp_Risk'] = insurance_data['Young_Driver'] * (insurance_d
 print("Storing it into csv")
 insurance_data.to_csv('cleaned_data.csv')
 insurance_data.to_pickle('cleaned_data.pkl')
+insurance_data.to_parquet('cleaned_data.parquet')
