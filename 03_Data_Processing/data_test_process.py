@@ -115,7 +115,7 @@ insurance_test['Customer_Loyalty'] = w_1*insurance_test['Years_Associates'] + w_
       + w_3*insurance_test['Max_Policy_Simultaneous_Force'] + w_4*insurance_test['Max_Product_Simultaneous_Held']
 
 # creating young_bhp_risk
-insurance_test['New_Bhp_Risk'] = insurance_test['New_License'] * insurance_test['Vehicle_Power_HP']
+insurance_test['New_Bhp_Risk'] = insurance_test['New_License'] * (insurance_test['Vehicle_Power_HP'] > 250).astype(int)
 
 # year_driving_start_date
 insurance_test['Years_Driving_At_Start_Date'] = (insurance_test['Start_Date_Contract'].dt.year - insurance_test['Date_Of_DL_Issuance'].dt.year)
@@ -125,8 +125,9 @@ insurance_test['Young_Driver'] = 0
 insurance_test.loc[insurance_test['Age'] < 25, 'Young_Driver'] = 1
 
 # young_driver_bhp
-insurance_test['Young_Bhp_Risk'] = insurance_test['Young_Driver'] * insurance_test['Vehicle_Power_HP']
+insurance_test['Young_Bhp_Risk'] = insurance_test['Young_Driver'] * (insurance_test['Vehicle_Power_HP'] > 250).astype(int)
 
 # saving it in another file
+print("Storing it into csv")
 insurance_test.to_csv('cleaned_test.csv')
 insurance_test.to_pickle('cleaned_test.pkl')
