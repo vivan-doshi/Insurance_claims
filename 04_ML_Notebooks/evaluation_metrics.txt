@@ -1,0 +1,21 @@
+Evaluation Metrics on Training Data
+===================================
+Optimal CS Threshold (Max Accuracy): 0.34
+Training Accuracy at Optimal Threshold: 0.9369
+
+RMSE (Loss Cost - using threshold 0.34): 824.2351
+RMSE (Historically Adjusted Loss Cost - using threshold 0.34): 1587.7389
+
+Confusion Matrix (Claim Status - using threshold 0.34):
+32838	462
+1901	2250
+
+Classification Report (Claim Status - using threshold {optimal_threshold:.2f}):
+              precision    recall  f1-score   support
+
+           0       0.95      0.99      0.97     33300
+           1       0.83      0.54      0.66      4151
+
+    accuracy                           0.94     37451
+   macro avg       0.89      0.76      0.81     37451
+weighted avg       0.93      0.94      0.93     37451
