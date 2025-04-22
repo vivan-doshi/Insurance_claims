@@ -127,10 +127,17 @@ insurance_test['Age_at_license'] = insurance_test['Date_Of_DL_Issuance'].dt.date
 insurance_test['Contract_Duration'] = insurance_test['Date_Next_Renewal'].dt.date - insurance_test['Start_Date_Contract'].dt.date
 
 # Age at contract
-insurance_test['Age_at_contract'] = insurance_test['Start_Date_Contract'].dt.date - insurance_test['Date_Of_Birth'].dt.date
+insurance_test['Age_at_contract'] = insurance_test['Start_Date_Contract'].dt.year - insurance_test['Date_Of_Birth'].dt.year
 
 # Car age at contract
 insurance_test['Car_Age_Contract'] = np.maximum((insurance_test['Start_Date_Contract'].dt.year - insurance_test['Yr_Vehicle_Registration']),0)
+
+# car age at contract categories
+insurance_test['Car_Age_Contract_Cat'] = pd.cut(
+    insurance_test['Car_Age_Contract'],
+    bins=[-1,3,7,15,np.inf],
+    labels=['New','Recent','Standard','Old']
+)
 
 # young driver flag
 insurance_test['Young_Driver'] = 0

@@ -73,7 +73,9 @@ for i in date_columns:
 
 # Creating LC and HALC variables
 insurance_data['Loss_Cost'] = insurance_data['Total_Cost_Claims_Current_Yr']/insurance_data['Total_Number_Claims_Current_Yr']
+insurance_data['Loss_Cost'] = insurance_data['Loss_Cost'].fillna(0)
 insurance_data['Historically_Adjusted_Loss_Cost'] = insurance_data['Loss_Cost'] * insurance_data['Ratio_Claims_Total_Duration_Force']
+insurance_data['Historically_Adjusted_Loss_Cost'] = insurance_data['Historically_Adjusted_Loss_Cost'].fillna(0)
 
 # creating claim status
 insurance_data['Claim_Status'] = 0
@@ -139,10 +141,17 @@ insurance_data['Age_at_license'] = insurance_data['Date_Of_DL_Issuance'].dt.date
 insurance_data['Contract_Duration'] = insurance_data['Date_Next_Renewal'].dt.date - insurance_data['Start_Date_Contract'].dt.date
 
 # Age at contract
-insurance_data['Age_at_contract'] = insurance_data['Start_Date_Contract'].dt.date - insurance_data['Date_Of_Birth'].dt.date
+insurance_data['Age_at_contract'] = insurance_data['Start_Date_Contract'].dt.year - insurance_data['Date_Of_Birth'].dt.year
 
 # Car age at contract
 insurance_data['Car_Age_Contract'] = np.maximum((insurance_data['Start_Date_Contract'].dt.year - insurance_data['Yr_Vehicle_Registration']),0)
+
+# car age at contract categories
+insurance_data['Car_Age_Contract_Cat'] = pd.cut(
+    insurance_data['Car_Age_Contract'],
+    bins=[-1,3,7,15,np.inf],
+    labels=['New','Recent','Standard','Old']
+)
 
 # young driver flag
 insurance_data['Young_Driver'] = 0
@@ -155,5 +164,6 @@ insurance_data['Young_Bhp_Risk'] = insurance_data['Young_Driver'] * (insurance_d
 # creating data
 print("Storing it into csv")
 insurance_data.to_csv('cleaned_data.csv')
-insurance_data.to_pickle('cleaned_data.pkl')
-insurance_data.to_parquet('cleaned_data.parquet')
+#insurance_data.to_pickle('cleaned_data.pkl')
+#insurance_data.to_parquet('cleaned_data.parquet')
+print("Ran")
