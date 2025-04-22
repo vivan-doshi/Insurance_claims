@@ -187,7 +187,7 @@ def preprocess_cleaned(df, fit_mode=True):
     X = X.drop(columns=[col for col in cols_to_drop if col in X.columns], errors='ignore')
     if 'Energy_Source' in X.columns:
         X['Energy_Source'] = X['Energy_Source'].fillna('Other')
-    cols_to_encode = [col for col in ['Car_Age_Cat', 'Energy_Source'] if col in X.columns]
+    cols_to_encode = [col for col in ['Car_Age_Cat', 'Energy_Source', 'Car_Age_Contract_Cat'] if col in X.columns]
     if cols_to_encode:
          X = pd.get_dummies(X, columns=cols_to_encode, dtype=int, drop_first=True)
     categorical_cols = X.select_dtypes(include=['object', 'category']).columns
@@ -230,6 +230,12 @@ N_FEATURES = 30
 cs_features = select_features(X_train_full, Y_CS, is_classifier=True)
 lc_features = select_features(X_train_full, Y_LC, is_classifier=False)
 halc_features = select_features(X_train_full, Y_HALC, is_classifier=False)
+
+# --- Train Test Split ---
+
+
+
+
 
 # --- Hyperparameter Tuning (Optuna) ---
 N_TRIALS = 100 # Keep increased trials
