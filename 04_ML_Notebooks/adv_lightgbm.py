@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from lightgbm import LGBMRegressor, LGBMClassifier
 import lightgbm as lgb
-from sklearn.model_selection import train_test_split, StratifiedKFold
+from sklearn.model_selection import train_test_split, StratifiedKFold, KFold # Keep both KFold imports for now
 # Added accuracy_score and classification_report
 from sklearn.metrics import roc_auc_score, mean_squared_error, confusion_matrix, ConfusionMatrixDisplay, accuracy_score, classification_report
 import optuna
@@ -35,7 +35,8 @@ def select_features(X, y, top_n=30, is_classifier=False):
     if is_classifier:
         model = lgb.LGBMClassifier(random_state=42, n_jobs=-1)
     else:
-        model = lgb.LGBMRegressor(objective='regression', random_state=42, n_jobs=-1)
+        # Use Tweedie for feature selection for regression targets as well
+        model = lgb.LGBMRegressor(objective='tweedie', random_state=42, n_jobs=-1)
     model.fit(X, y)
     importances = pd.DataFrame({
         'feature': X.columns,
@@ -48,6 +49,7 @@ def select_features(X, y, top_n=30, is_classifier=False):
 # --- Optuna Objective Functions ---
 def objective_cs(trial, X_train_feat, y_train_cs):
     # Objective function for Claim Status (Classification) using AUC maximization
+    # Trains on ALL data passed to it (within CV folds)
     param = {
         'objective': 'binary', 'metric': 'auc', 'boosting_type': 'gbdt',
         'verbosity': -1, 'n_jobs': -1, 'random_state': 42,
@@ -63,6 +65,7 @@ def objective_cs(trial, X_train_feat, y_train_cs):
     }
     cv_scores = []
     n_folds = 5
+    # Use StratifiedKFold for classification
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
     for train_idx, val_idx in skf.split(X_train_feat, y_train_cs):
         X_fold_train, X_fold_val = X_train_feat.iloc[train_idx], X_train_feat.iloc[val_idx]
@@ -77,68 +80,10 @@ def objective_cs(trial, X_train_feat, y_train_cs):
         cv_scores.append(auc)
     return np.mean(cv_scores)
 
-# *** MODIFIED: Objective Function for LC Severity using Tweedie ***
-def objective_lc_regression(trial, X_train_feat, y_train_lc):
-    # Objective function for LC Regression severity using Tweedie objective
-    non_zero_mask_train = y_train_lc > 0
-    X_train_nz = X_train_feat[non_zero_mask_train]
-    y_train_nz = y_train_lc[non_zero_mask_train] # Use original scale LC
-    if len(y_train_nz) == 0: return 1e6
-
-    param = {
-        'objective': 'tweedie', # *** Use Tweedie objective ***
-        'metric': 'rmse', # Evaluate with RMSE
-        'boosting_type': 'gbdt',
-        'verbosity': -1, 'n_jobs': -1, 'random_state': 42,
-        # *** Tune Tweedie variance power ***
-        'tweedie_variance_power': trial.suggest_float('tweedie_variance_power', 1.1, 1.9),
-        'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.08, log=True),
-        'n_estimators': trial.suggest_int('n_estimators', 100, 1500, step=100),
-        'max_depth': trial.suggest_int('max_depth', 3, 15),
-        'num_leaves': trial.suggest_int('num_leaves', 8, 300),
-        'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
-        'subsample': trial.suggest_float('subsample', 0.5, 1.0),
-        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
-        'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 10.0, log=True),
-        'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 10.0, log=True),
-    }
-    cv_scores = []
-    n_folds = 5
-    zero_indicator = (y_train_lc > 0).astype(int)
-    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
-    for train_idx, val_idx in skf.split(X_train_feat, zero_indicator):
-        y_fold_train_full = y_train_lc.iloc[train_idx]
-        y_fold_val_full = y_train_lc.iloc[val_idx]
-        train_nz_mask_fold = y_fold_train_full > 0
-        val_nz_mask_fold = y_fold_val_full > 0
-        X_fold_train_nz = X_train_feat.iloc[train_idx][train_nz_mask_fold]
-        y_fold_train_nz = y_fold_train_full[train_nz_mask_fold] # Original scale
-        X_fold_val_nz = X_train_feat.iloc[val_idx][val_nz_mask_fold]
-        y_fold_val_nz = y_fold_val_full[val_nz_mask_fold] # Original scale
-        if len(y_fold_val_nz) == 0: continue
-        if len(y_fold_train_nz) == 0: continue
-
-        # *** No log transform needed ***
-        model = lgb.LGBMRegressor(**param)
-        model.fit(X_fold_train_nz, y_fold_train_nz, # Fit on original scale non-zero
-                  eval_set=[(X_fold_val_nz, y_fold_val_nz)],
-                  eval_metric='rmse',
-                  callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)])
-
-        y_pred = model.predict(X_fold_val_nz) # Predict directly on original scale
-        y_pred = np.maximum(y_pred, 0)
-        fold_rmse = rmse(y_fold_val_nz, y_pred) # Calculate RMSE on original scale
-        cv_scores.append(fold_rmse)
-    if not cv_scores: return 1e6
-    return np.mean(cv_scores)
-
-def objective_halc_regression(trial, X_train_feat, y_train_halc):
-    # Objective function for HALC Regression severity using Tweedie objective
-    non_zero_mask_train = y_train_halc > 0
-    X_train_nz = X_train_feat[non_zero_mask_train]
-    y_train_nz = y_train_halc[non_zero_mask_train] # Use original scale HALC
-    if len(y_train_nz) == 0: return 1e6
-
+# *** MODIFIED: Unified Objective Function for Tweedie Regression (LC & HALC) with Stratification ***
+def objective_tweedie_regression(trial, X_train_feat, y_train_target):
+    # Objective function for Tweedie Regression using RMSE minimization
+    # Trains on ALL data passed to it (within CV folds)
     param = {
         'objective': 'tweedie', # Use Tweedie objective
         'metric': 'rmse', # Evaluate with RMSE
@@ -157,30 +102,42 @@ def objective_halc_regression(trial, X_train_feat, y_train_halc):
     }
     cv_scores = []
     n_folds = 5
-    zero_indicator = (y_train_halc > 0).astype(int)
+
+    # *** Create bins for stratification based on target value ***
+    # Simple approach: Bin 0 vs non-zero
+    stratify_bins = (y_train_target > 0).astype(int)
+    # Alternative: Quantile bins for non-zero values + zero bin
+    # n_quantiles = 4 # Example number of quantile bins
+    # non_zero_mask = y_train_target > 0
+    # if non_zero_mask.sum() > n_quantiles : # Check if enough non-zero values for qcut
+    #     # Create quantile bins for non-zero values, assigning bin number (e.g., 1 to n_quantiles)
+    #     non_zero_bins = pd.qcut(y_train_target[non_zero_mask], q=n_quantiles, labels=False, duplicates='drop') + 1
+    #     # Initialize bins with 0 for zero values
+    #     stratify_bins = pd.Series(0, index=y_train_target.index)
+    #     # Assign the calculated quantile bin numbers to the non-zero entries
+    #     stratify_bins.loc[non_zero_mask] = non_zero_bins
+    # else: # Fallback to simple 0 vs non-zero if not enough unique non-zero values
+    #     print("Warning: Not enough unique non-zero values for quantile binning, using 0/1 stratification.")
+    #     stratify_bins = (y_train_target > 0).astype(int)
+
+    # *** Use StratifiedKFold with the created bins ***
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
-    for train_idx, val_idx in skf.split(X_train_feat, zero_indicator):
-        y_fold_train_full = y_train_halc.iloc[train_idx]
-        y_fold_val_full = y_train_halc.iloc[val_idx]
-        train_nz_mask_fold = y_fold_train_full > 0
-        val_nz_mask_fold = y_fold_val_full > 0
-        X_fold_train_nz = X_train_feat.iloc[train_idx][train_nz_mask_fold]
-        y_fold_train_nz = y_fold_train_full[train_nz_mask_fold] # Original scale
-        X_fold_val_nz = X_train_feat.iloc[val_idx][val_nz_mask_fold]
-        y_fold_val_nz = y_fold_val_full[val_nz_mask_fold] # Original scale
-        if len(y_fold_val_nz) == 0: continue
-        if len(y_fold_train_nz) == 0: continue
+    for train_idx, val_idx in skf.split(X_train_feat, stratify_bins): # Pass bins to split
+        X_fold_train, X_fold_val = X_train_feat.iloc[train_idx], X_train_feat.iloc[val_idx]
+        y_fold_train, y_fold_val = y_train_target.iloc[train_idx], y_train_target.iloc[val_idx] # Original scale
 
         model = lgb.LGBMRegressor(**param)
-        model.fit(X_fold_train_nz, y_fold_train_nz, # Fit on original scale non-zero
-                  eval_set=[(X_fold_val_nz, y_fold_val_nz)],
+        # Fit directly on the fold data (original scale)
+        model.fit(X_fold_train, y_fold_train,
+                  eval_set=[(X_fold_val, y_fold_val)],
                   eval_metric='rmse',
                   callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)])
 
-        y_pred = model.predict(X_fold_val_nz) # Predict directly on original scale
-        y_pred = np.maximum(y_pred, 0)
-        fold_rmse = rmse(y_fold_val_nz, y_pred) # Calculate RMSE on original scale
+        y_pred = model.predict(X_fold_val) # Predict directly
+        y_pred = np.maximum(y_pred, 0) # Ensure non-negative
+        fold_rmse = rmse(y_fold_val, y_pred) # Calculate RMSE
         cv_scores.append(fold_rmse)
+    # Handle case where CV might fail
     if not cv_scores: return 1e6
     return np.mean(cv_scores)
 
@@ -271,15 +228,15 @@ print(f"Final test features shape: {X_test_full.shape}")
 # --- Feature Selection ---
 N_FEATURES = 30
 cs_features = select_features(X_train_full, Y_CS, is_classifier=True)
-lc_features = select_features(X_train_full, Y_LC, is_classifier=False) # Still select based on LC target
-halc_features = select_features(X_train_full, Y_HALC, is_classifier=False) # Still select based on HALC target
+lc_features = select_features(X_train_full, Y_LC, is_classifier=False)
+halc_features = select_features(X_train_full, Y_HALC, is_classifier=False)
 
 # --- Hyperparameter Tuning (Optuna) ---
 N_TRIALS = 100 # Keep increased trials
 print(f"\nStarting Optuna hyperparameter tuning ({N_TRIALS} trials per target)...")
 best_params_cs = {}
-best_params_lc_reg = {}
-best_params_halc_reg = {}
+best_params_lc_tweedie = {}
+best_params_halc_tweedie = {}
 
 study_cs = optuna.create_study(direction='maximize')
 try:
@@ -289,21 +246,19 @@ try:
 except Exception as e:
     print(f"Optuna optimization for CS failed: {e}. Using default parameters.")
 
-study_lc = optuna.create_study(direction='minimize')
+study_lc_tweedie = optuna.create_study(direction='minimize')
 try:
-    # *** Use LC objective with Tweedie ***
-    study_lc.optimize(lambda trial: objective_lc_regression(trial, X_train_full[lc_features], Y_LC), n_trials=N_TRIALS)
-    best_params_lc_reg = study_lc.best_params
-    print(f"\nBest CV RMSE for LC (non-zero, original scale, Tweedie tuned): {study_lc.best_value:.4f}")
+    study_lc_tweedie.optimize(lambda trial: objective_tweedie_regression(trial, X_train_full[lc_features], Y_LC), n_trials=N_TRIALS)
+    best_params_lc_tweedie = study_lc_tweedie.best_params
+    print(f"\nBest CV RMSE for LC (Tweedie tuned): {study_lc_tweedie.best_value:.4f}")
 except Exception as e:
     print(f"Optuna optimization for LC failed: {e}. Using default parameters.")
 
-study_halc = optuna.create_study(direction='minimize')
+study_halc_tweedie = optuna.create_study(direction='minimize')
 try:
-    # *** Use HALC objective with Tweedie ***
-    study_halc.optimize(lambda trial: objective_halc_regression(trial, X_train_full[halc_features], Y_HALC), n_trials=N_TRIALS)
-    best_params_halc_reg = study_halc.best_params
-    print(f"\nBest CV RMSE for HALC (non-zero, original scale, Tweedie tuned): {study_halc.best_value:.4f}")
+    study_halc_tweedie.optimize(lambda trial: objective_tweedie_regression(trial, X_train_full[halc_features], Y_HALC), n_trials=N_TRIALS)
+    best_params_halc_tweedie = study_halc_tweedie.best_params
+    print(f"\nBest CV RMSE for HALC (Tweedie tuned): {study_halc_tweedie.best_value:.4f}")
 except Exception as e:
     print(f"Optuna optimization for HALC failed: {e}. Using default parameters.")
 
@@ -321,54 +276,37 @@ cs_model = lgb.LGBMClassifier(**final_params_cs)
 cs_model.fit(X_train_full[cs_features], Y_CS)
 print("Claim Status model trained.")
 
-# 2. Loss Cost Severity Model (Uses Tweedie objective)
-final_params_lc_reg = {
-    'objective': 'tweedie', # *** Set Tweedie objective ***
+# 2. Loss Cost Model (Direct Tweedie)
+final_params_lc_tweedie = {
+    'objective': 'tweedie',
     'metric': 'rmse',
     'boosting_type': 'gbdt',
     'verbosity': -1, 'random_state': 42, 'n_jobs': -1,
     'learning_rate': 0.05, 'n_estimators': 500,
     'tweedie_variance_power': 1.5, # Default if tuning failed
-    **best_params_lc_reg # Use LC-tuned params (includes tweedie_variance_power)
+    **best_params_lc_tweedie
 }
-if 'n_estimators' not in final_params_lc_reg: final_params_lc_reg['n_estimators'] = 500
-if 'tweedie_variance_power' not in final_params_lc_reg: final_params_lc_reg['tweedie_variance_power'] = 1.5
+if 'n_estimators' not in final_params_lc_tweedie: final_params_lc_tweedie['n_estimators'] = 500
+if 'tweedie_variance_power' not in final_params_lc_tweedie: final_params_lc_tweedie['tweedie_variance_power'] = 1.5
+lc_model = lgb.LGBMRegressor(**final_params_lc_tweedie)
+lc_model.fit(X_train_full[lc_features], Y_LC)
+print("LC model trained (using Tweedie).")
 
-lc_reg_model = lgb.LGBMRegressor(**final_params_lc_reg)
-lc_train_mask_nz = Y_LC > 0
-X_lc_train_nz = X_train_full.loc[lc_train_mask_nz, lc_features]
-Y_lc_train_nz = Y_LC[lc_train_mask_nz] # Use original scale LC for training
-if len(X_lc_train_nz) > 0:
-    # *** Train on original scale non-zero LC ***
-    lc_reg_model.fit(X_lc_train_nz, Y_lc_train_nz)
-    print("LC Severity model trained (using Tweedie).")
-else:
-    lc_reg_model = None
-    print("Warning: No non-zero LC data to train severity model.")
-
-# 3. HALC Severity Model (Uses Tweedie objective)
-final_params_halc_reg = {
-    'objective': 'tweedie', # Use Tweedie objective
+# 3. HALC Model (Direct Tweedie)
+final_params_halc_tweedie = {
+    'objective': 'tweedie',
     'metric': 'rmse',
     'boosting_type': 'gbdt',
     'verbosity': -1, 'random_state': 42, 'n_jobs': -1,
     'learning_rate': 0.05, 'n_estimators': 500,
     'tweedie_variance_power': 1.5, # Default if tuning failed
-    **best_params_halc_reg # Use HALC-tuned params (includes tweedie_variance_power)
+    **best_params_halc_tweedie
 }
-if 'n_estimators' not in final_params_halc_reg: final_params_halc_reg['n_estimators'] = 500
-if 'tweedie_variance_power' not in final_params_halc_reg: final_params_halc_reg['tweedie_variance_power'] = 1.5
-
-halc_reg_model = lgb.LGBMRegressor(**final_params_halc_reg)
-halc_train_mask_nz = Y_HALC > 0
-X_halc_train_nz = X_train_full.loc[halc_train_mask_nz, halc_features]
-Y_halc_train_nz = Y_HALC[halc_train_mask_nz] # Use original scale HALC for training
-if len(X_halc_train_nz) > 0:
-    halc_reg_model.fit(X_halc_train_nz, Y_halc_train_nz)
-    print("HALC Severity model trained (using Tweedie).")
-else:
-    halc_reg_model = None
-    print("Warning: No non-zero HALC data to train severity model.")
+if 'n_estimators' not in final_params_halc_tweedie: final_params_halc_tweedie['n_estimators'] = 500
+if 'tweedie_variance_power' not in final_params_halc_tweedie: final_params_halc_tweedie['tweedie_variance_power'] = 1.5
+halc_model = lgb.LGBMRegressor(**final_params_halc_tweedie)
+halc_model.fit(X_train_full[halc_features], Y_HALC)
+print("HALC model trained (using Tweedie).")
 
 
 # --- Find Optimal Threshold for CS Model based on Training Accuracy ---
@@ -402,43 +340,34 @@ except NameError:
     script_start_dir = os.getcwd()
 metrics_output_file = os.path.join(script_start_dir, 'evaluation_metrics.txt')
 models_available = 'cs_model' in locals() and cs_model is not None
-lc_model_trained = 'lc_reg_model' in locals() and lc_reg_model is not None # Check specifically for LC model
-halc_model_trained = 'halc_reg_model' in locals() and halc_reg_model is not None
+lc_model_available = 'lc_model' in locals() and lc_model is not None
+halc_model_available = 'halc_model' in locals() and halc_model is not None
 train_rmse_lc = np.nan
 train_rmse_halc = np.nan
 cm = np.array([['N/A', 'N/A'], ['N/A', 'N/A']])
 
-if models_available:
+if models_available and lc_model_available and halc_model_available:
     print("Generating predictions on training data for evaluation...")
+    # CS Predictions
     X_train_cs = X_train_full[cs_features]
     cs_pred_proba_train = cs_model.predict_proba(X_train_cs)[:, 1]
     cs_pred_binary_train = (cs_pred_proba_train >= optimal_threshold).astype(int)
 
-    # Use the LC model (Tweedie) for prediction - no inverse transform needed
-    if lc_model_trained:
-        X_train_lc = X_train_full[lc_features]
-        # *** Predict directly with Tweedie model ***
-        lc_pred_severity_train = lc_reg_model.predict(X_train_lc)
-        lc_pred_severity_train = np.maximum(lc_pred_severity_train, 0) # Ensure non-negative
-    else:
-        lc_pred_severity_train = np.zeros(len(X_train_full))
+    # LC Predictions (Direct Tweedie)
+    X_train_lc = X_train_full[lc_features]
+    lc_pred_final_train = lc_model.predict(X_train_lc)
+    lc_pred_final_train = np.maximum(lc_pred_final_train, 0)
 
-    # Use the HALC model (Tweedie) for prediction - no inverse transform needed
-    if halc_model_trained:
-        X_train_halc = X_train_full[halc_features]
-        # *** Predict directly with Tweedie model ***
-        halc_pred_severity_train = halc_reg_model.predict(X_train_halc)
-        halc_pred_severity_train = np.maximum(halc_pred_severity_train, 0) # Ensure non-negative
-    else:
-        halc_pred_severity_train = np.zeros(len(X_train_full))
+    # HALC Predictions (Direct Tweedie)
+    X_train_halc = X_train_full[halc_features]
+    halc_pred_final_train = halc_model.predict(X_train_halc)
+    halc_pred_final_train = np.maximum(halc_pred_final_train, 0)
 
-    lc_pred_final_train = cs_pred_binary_train * lc_pred_severity_train
-    halc_pred_final_train = cs_pred_binary_train * halc_pred_severity_train
-
+    # --- Calculate Metrics ---
     train_rmse_lc = np.sqrt(mean_squared_error(Y_LC, lc_pred_final_train))
     train_rmse_halc = np.sqrt(mean_squared_error(Y_HALC, halc_pred_final_train))
-    print(f"\nTraining Data RMSE (LC - using threshold {optimal_threshold:.2f}, Tweedie): {train_rmse_lc:.4f}") # Note Tweedie
-    print(f"Training Data RMSE (HALC - using threshold {optimal_threshold:.2f}, Tweedie): {train_rmse_halc:.4f}")
+    print(f"\nTraining Data RMSE (LC - Direct Tweedie): {train_rmse_lc:.4f}")
+    print(f"Training Data RMSE (HALC - Direct Tweedie): {train_rmse_halc:.4f}")
     print("\nTraining Data Confusion Matrix (Claim Status - using threshold {optimal_threshold:.2f}):")
     cm = confusion_matrix(Y_CS, cs_pred_binary_train)
     print(cm)
@@ -448,12 +377,12 @@ if models_available:
     print(f"\n--- Saving Evaluation Metrics to {metrics_output_file} ---")
     try:
         with open(metrics_output_file, 'w') as f:
-            f.write("Evaluation Metrics on Training Data\n")
-            f.write("="*35 + "\n")
+            f.write("Evaluation Metrics on Training Data (Direct Tweedie Models)\n")
+            f.write("="*55 + "\n")
             f.write(f"Optimal CS Threshold (Max Accuracy): {optimal_threshold:.2f}\n")
             f.write(f"Training Accuracy at Optimal Threshold: {best_accuracy:.4f}\n\n")
-            f.write(f"RMSE (Loss Cost - using threshold {optimal_threshold:.2f}, Tweedie): {train_rmse_lc:.4f}\n") # Note Tweedie
-            f.write(f"RMSE (Historically Adjusted Loss Cost - using threshold {optimal_threshold:.2f}, Tweedie): {train_rmse_halc:.4f}\n\n")
+            f.write(f"RMSE (Loss Cost - Direct Tweedie): {train_rmse_lc:.4f}\n")
+            f.write(f"RMSE (Historically Adjusted Loss Cost - Direct Tweedie): {train_rmse_halc:.4f}\n\n")
             f.write(f"Confusion Matrix (Claim Status - using threshold {optimal_threshold:.2f}):\n")
             s_cm = io.StringIO()
             np.savetxt(s_cm, cm, fmt='%d', delimiter='\t')
@@ -475,7 +404,6 @@ if models_available:
     if isinstance(X_train_full, pd.DataFrame) and sample_size > 0:
         X_train_sample = X_train_full.sample(sample_size, random_state=42)
         print("Calculating and plotting SHAP for Claim Status model...")
-        # ... [SHAP CS code remains same] ...
         try:
             explainer_cs = shap.TreeExplainer(cs_model)
             shap_values_cs = explainer_cs.shap_values(X_train_sample[cs_features], check_additivity=False)
@@ -487,40 +415,25 @@ if models_available:
         except Exception as e:
             print(f"Could not generate SHAP plot for Claim Status: {e}")
 
-        # SHAP for LC Severity Model (Tweedie)
-        if lc_model_trained:
-            print("\nCalculating and plotting SHAP for LC Severity model (Tweedie)...")
-            try:
-                lc_train_mask_nz_sample = Y_LC.loc[X_train_sample.index] > 0
-                X_lc_train_nz_sample = X_train_sample.loc[lc_train_mask_nz_sample, lc_features]
-                if not X_lc_train_nz_sample.empty:
-                   explainer_lc = shap.TreeExplainer(lc_reg_model) # Use lc_reg_model
-                   shap_values_lc = explainer_lc.shap_values(X_lc_train_nz_sample, check_additivity=False)
-                   shap.summary_plot(shap_values_lc, X_lc_train_nz_sample, plot_type="dot", show=False)
-                   # Updated title
-                   plt.title('SHAP Summary Plot (LC Severity - Tweedie on non-zero sample)')
-                   plt.show()
-                else:
-                    print("Not enough non-zero LC data in the sample for SHAP plot.")
-            except Exception as e:
-                print(f"Could not generate SHAP plot for LC Severity: {e}")
+        print("\nCalculating and plotting SHAP for LC model (Tweedie)...")
+        try:
+            explainer_lc = shap.TreeExplainer(lc_model)
+            shap_values_lc = explainer_lc.shap_values(X_train_sample[lc_features], check_additivity=False)
+            shap.summary_plot(shap_values_lc, X_train_sample[lc_features], plot_type="dot", show=False)
+            plt.title('SHAP Summary Plot (LC Model - Tweedie)')
+            plt.show()
+        except Exception as e:
+            print(f"Could not generate SHAP plot for LC Model: {e}")
 
-        # SHAP for HALC Severity Model (Tweedie)
-        if halc_model_trained:
-            print("\nCalculating and plotting SHAP for HALC Severity model (Tweedie)...")
-            try:
-                halc_train_mask_nz_sample = Y_HALC.loc[X_train_sample.index] > 0
-                X_halc_train_nz_sample = X_train_sample.loc[halc_train_mask_nz_sample, halc_features]
-                if not X_halc_train_nz_sample.empty:
-                    explainer_halc = shap.TreeExplainer(halc_reg_model)
-                    shap_values_halc = explainer_halc.shap_values(X_halc_train_nz_sample, check_additivity=False)
-                    shap.summary_plot(shap_values_halc, X_halc_train_nz_sample, plot_type="dot", show=False)
-                    plt.title('SHAP Summary Plot (HALC Severity - Tweedie on non-zero sample)')
-                    plt.show()
-                else:
-                    print("Not enough non-zero HALC data in the sample for SHAP plot.")
-            except Exception as e:
-                print(f"Could not generate SHAP plot for HALC Severity: {e}")
+        print("\nCalculating and plotting SHAP for HALC model (Tweedie)...")
+        try:
+            explainer_halc = shap.TreeExplainer(halc_model)
+            shap_values_halc = explainer_halc.shap_values(X_train_sample[halc_features], check_additivity=False)
+            shap.summary_plot(shap_values_halc, X_train_sample[halc_features], plot_type="dot", show=False)
+            plt.title('SHAP Summary Plot (HALC Model - Tweedie)')
+            plt.show()
+        except Exception as e:
+            print(f"Could not generate SHAP plot for HALC Model: {e}")
     else:
          print("Error: X_train_full not found, not a DataFrame, or sample size is zero. Cannot generate SHAP plots.")
 else:
@@ -533,33 +446,21 @@ else:
 
 # --- Prediction on Test Set ---
 print("\nGenerating predictions on the test set...")
-if models_available:
+if models_available and lc_model_available and halc_model_available:
+    # CS Prediction
     X_test_cs = X_test_full[cs_features]
     cs_pred_proba = cs_model.predict_proba(X_test_cs)[:, 1]
     cs_pred_binary = (cs_pred_proba >= optimal_threshold).astype(int)
 
-    # Use the LC model (Tweedie) for prediction - no inverse transform needed
-    if lc_model_trained and lc_reg_model is not None:
-        X_test_lc = X_test_full[lc_features]
-        # *** Predict directly with Tweedie model ***
-        lc_pred_severity = lc_reg_model.predict(X_test_lc)
-        lc_pred_severity = np.maximum(lc_pred_severity, 0) # Ensure non-negative
-    else:
-        print("LC Severity model not available for test prediction. Predicting 0.")
-        lc_pred_severity = np.zeros(len(X_test_full))
+    # LC Prediction (Direct Tweedie)
+    X_test_lc = X_test_full[lc_features]
+    lc_pred_final = lc_model.predict(X_test_lc)
+    lc_pred_final = np.maximum(lc_pred_final, 0)
 
-    # Use the HALC model (Tweedie) for prediction - no inverse transform needed
-    if halc_model_trained and halc_reg_model is not None:
-        X_test_halc = X_test_full[halc_features]
-        # *** Predict directly with Tweedie model ***
-        halc_pred_severity = halc_reg_model.predict(X_test_halc)
-        halc_pred_severity = np.maximum(halc_pred_severity, 0) # Ensure non-negative
-    else:
-        print("HALC Severity model not available for test prediction. Predicting 0.")
-        halc_pred_severity = np.zeros(len(X_test_full))
-
-    lc_pred_final = cs_pred_binary * lc_pred_severity
-    halc_pred_final = cs_pred_binary * halc_pred_severity
+    # HALC Prediction (Direct Tweedie)
+    X_test_halc = X_test_full[halc_features]
+    halc_pred_final = halc_model.predict(X_test_halc)
+    halc_pred_final = np.maximum(halc_pred_final, 0)
 
     # --- Create Submission File ---
     print("Creating submission file...")
@@ -578,6 +479,6 @@ if models_available:
     except Exception as e:
         print(f"Error saving submission file: {e}")
 else:
-    print("Models were not trained successfully. Cannot generate test predictions or submission file.")
+    print("One or more models were not trained successfully. Cannot generate test predictions or submission file.")
 
 print("\nScript finished.")
