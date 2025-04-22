@@ -130,14 +130,27 @@ insurance_data['Customer_Loyalty'] = w_1*insurance_data['Years_Associates'] + w_
 insurance_data['New_Bhp_Risk'] = insurance_data['New_License']  * (insurance_data['Vehicle_Power_HP'] > 250).astype(int)
 
 # year_driving_start_date
-insurance_data['Years_Driving_At_Start_Date'] = (insurance_data['Start_Date_Contract'].dt.year - insurance_data['Date_Of_DL_Issuance'].dt.year)
+insurance_data['Days_Driving_At_Start_Date'] = (insurance_data['Start_Date_Contract'].dt.date - insurance_data['Date_Of_DL_Issuance'].dt.date)
+
+# Age at license
+insurance_data['Age_at_license'] = insurance_data['Date_Of_DL_Issuance'].dt.date -  insurance_data['Date_Of_Birth'].dt.date
+
+# Contract duration
+insurance_data['Contract_Duration'] = insurance_data['Date_Next_Renewal'].dt.date - insurance_data['Start_Date_Contract'].dt.date
+
+# Age at contract
+insurance_data['Age_at_contract'] = insurance_data['Start_Date_Contract'].dt.date - insurance_data['Date_Of_Birth'].dt.date
+
+# Car age at contract
+insurance_data['Car_Age_Contract'] = np.maximum((insurance_data['Start_Date_Contract'].dt.year - insurance_data['Yr_Vehicle_Registration']),0)
 
 # young driver flag
 insurance_data['Young_Driver'] = 0
-insurance_data.loc[insurance_data['Age'] < 25, 'Young_Driver'] = 1
+insurance_data.loc[insurance_data['Age_at_contract'] < 25, 'Young_Driver'] = 1
 
 # young_driver_bhp
 insurance_data['Young_Bhp_Risk'] = insurance_data['Young_Driver'] * (insurance_data['Vehicle_Power_HP'] > 250).astype(int)
+
 
 # creating data
 print("Storing it into csv")

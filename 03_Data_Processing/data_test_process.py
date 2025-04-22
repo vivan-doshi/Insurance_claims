@@ -115,20 +115,33 @@ insurance_test['Customer_Loyalty'] = w_1*insurance_test['Years_Associates'] + w_
       + w_3*insurance_test['Max_Policy_Simultaneous_Force'] + w_4*insurance_test['Max_Product_Simultaneous_Held']
 
 # creating young_bhp_risk
-insurance_test['New_Bhp_Risk'] = insurance_test['New_License'] * (insurance_test['Vehicle_Power_HP'] > 250).astype(int)
+insurance_test['New_Bhp_Risk'] = insurance_test['New_License']  * (insurance_test['Vehicle_Power_HP'] > 250).astype(int)
 
 # year_driving_start_date
-insurance_test['Years_Driving_At_Start_Date'] = (insurance_test['Start_Date_Contract'].dt.year - insurance_test['Date_Of_DL_Issuance'].dt.year)
+insurance_test['Days_Driving_At_Start_Date'] = (insurance_test['Start_Date_Contract'].dt.date - insurance_test['Date_Of_DL_Issuance'].dt.date)
+
+# Age at license
+insurance_test['Age_at_license'] = insurance_test['Date_Of_DL_Issuance'].dt.date -  insurance_test['Date_Of_Birth'].dt.date
+
+# Contract duration
+insurance_test['Contract_Duration'] = insurance_test['Date_Next_Renewal'].dt.date - insurance_test['Start_Date_Contract'].dt.date
+
+# Age at contract
+insurance_test['Age_at_contract'] = insurance_test['Start_Date_Contract'].dt.date - insurance_test['Date_Of_Birth'].dt.date
+
+# Car age at contract
+insurance_test['Car_Age_Contract'] = np.maximum((insurance_test['Start_Date_Contract'].dt.year - insurance_test['Yr_Vehicle_Registration']),0)
 
 # young driver flag
 insurance_test['Young_Driver'] = 0
-insurance_test.loc[insurance_test['Age'] < 25, 'Young_Driver'] = 1
+insurance_test.loc[insurance_test['Age_at_contract'] < 25, 'Young_Driver'] = 1
 
 # young_driver_bhp
 insurance_test['Young_Bhp_Risk'] = insurance_test['Young_Driver'] * (insurance_test['Vehicle_Power_HP'] > 250).astype(int)
 
-# saving it in another file
+
+# creating data
 print("Storing it into csv")
-insurance_test.to_csv('cleaned_test.csv')
-insurance_test.to_pickle('cleaned_test.pkl')
-insurance_test.to_parquet('cleaned_test.parquet')
+insurance_test.to_csv('cleaned_data.csv')
+insurance_test.to_pickle('cleaned_data.pkl')
+insurance_test.to_parquet('cleaned_data.parquet')
