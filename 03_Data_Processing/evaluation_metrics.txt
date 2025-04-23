@@ -1,21 +1,21 @@
 Evaluation Metrics on Validation Set (Direct Tweedie Models)
 ============================================================
-Optimal CS Threshold (Max Validation Accuracy): 0.50
-Validation Accuracy at Optimal Threshold: 0.8997
+Optimal CS Threshold (Max Validation Accuracy): 0.47
+Validation Accuracy at Optimal Threshold: 0.8989
 
-RMSE (Loss Cost - Direct Tweedie): 450.1180
-RMSE (Historically Adjusted Loss Cost - Direct Tweedie): 1100.4134
+RMSE (Loss Cost - Direct Tweedie): 450.3057
+RMSE (Historically Adjusted Loss Cost - Direct Tweedie): 1096.6838
 
-Confusion Matrix (Claim Status - using threshold 0.50):
-6614	47
-704	126
+Confusion Matrix (Claim Status - using threshold 0.47):
+6571	90
+667	163
 
 Classification Report (Claim Status - using threshold {optimal_threshold:.2f}):
               precision    recall  f1-score   support
 
-           0       0.90      0.99      0.95      6661
-           1       0.73      0.15      0.25       830
+           0       0.91      0.99      0.95      6661
+           1       0.64      0.20      0.30       830
 
     accuracy                           0.90      7491
-   macro avg       0.82      0.57      0.60      7491
+   macro avg       0.78      0.59      0.62      7491
 weighted avg       0.88      0.90      0.87      7491
