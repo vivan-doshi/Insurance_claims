@@ -1,5 +1,4 @@
-# run_all_lgbm_tuning.py (v3 - robust binning, feature name sanitization)
-
+# --- Imports ---
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -195,7 +194,7 @@ print("Starting hyperparameter tuning process...")
 # Load Feature Data Once
 try:
     print(f"\nLoading training features from: {TRAIN_FEATURES_FILE}")
-    X_train_global = pd.read_csv(TRAIN_FEATURES_FILE, index_col=0) # Assuming first column is index
+    X_train_global = pd.read_csv(TRAIN_FEATURES_FILE, index_col=0)
     print(f"Feature dimensions: {X_train_global.shape}")
 
     # *** Sanitize Feature Names ***
@@ -224,7 +223,7 @@ except Exception as e:
 # Load Full Target Data Once
 try:
     print(f"Loading training targets from: {TRAIN_TARGET_FILE}")
-    y_df_full = pd.read_csv(TRAIN_TARGET_FILE, index_col=0) # Assuming first column is index
+    y_df_full = pd.read_csv(TRAIN_TARGET_FILE, index_col=0)
     # Check for and remove potential unnamed index column from CSV read
     if 'Unnamed: 0' in y_df_full.columns:
         print("Removing 'Unnamed: 0' column from target DataFrame.")
