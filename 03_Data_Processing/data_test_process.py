@@ -118,13 +118,13 @@ insurance_test['Customer_Loyalty'] = w_1*insurance_test['Years_Associates'] + w_
 insurance_test['New_Bhp_Risk'] = insurance_test['New_License']  * (insurance_test['Vehicle_Power_HP'] > 250).astype(int)
 
 # year_driving_start_date
-insurance_test['Days_Driving_At_Start_Date'] = (insurance_test['Start_Date_Contract'].dt.date - insurance_test['Date_Of_DL_Issuance'].dt.date)
+insurance_test['Days_Driving_At_Start_Date'] = (insurance_test['Start_Date_Contract'] - insurance_test['Date_Of_DL_Issuance']).dt.days
 
 # Age at license
-insurance_test['Age_at_license'] = insurance_test['Date_Of_DL_Issuance'].dt.date -  insurance_test['Date_Of_Birth'].dt.date
+insurance_test['Age_at_license'] = (insurance_test['Date_Of_DL_Issuance'] -  insurance_test['Date_Of_Birth']).dt.days
 
 # Contract duration
-insurance_test['Contract_Duration'] = insurance_test['Date_Next_Renewal'].dt.date - insurance_test['Start_Date_Contract'].dt.date
+insurance_test['Contract_Duration'] = (insurance_test['Date_Next_Renewal'] - insurance_test['Start_Date_Contract']).dt.days
 
 # Age at contract
 insurance_test['Age_at_contract'] = insurance_test['Start_Date_Contract'].dt.year - insurance_test['Date_Of_Birth'].dt.year
