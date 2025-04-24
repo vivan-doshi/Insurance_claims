@@ -1,0 +1,12 @@
+learning_rate: 0.023502436627855998
+num_leaves: 108
+max_depth: 11
+min_data_in_leaf: 91
+max_bin: 211
+lambda_l1: 4.670043653847699
+lambda_l2: 2.3679146805353573e-07
+min_gain_to_split: 0.013982227028818343
+bagging_fraction: 0.5006665349915911
+bagging_freq: 10
+feature_fraction: 0.5935243509794315
+n_estimators: 213
