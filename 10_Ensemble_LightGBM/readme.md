@@ -13,8 +13,6 @@ The implementation uses a two-level stacking ensemble:
 
 ```
 .
-├── lightgbm-optuna-script.py       # Script for base model hyperparameter tuning
-├── lightgbm-meta-model.py          # Script for meta model implementation
 ├── ensemble-pipeline.py            # Complete pipeline script combining both models
 ├── hyperparameter-optimization.py  # Dedicated script for hyperparameter optimization
 ├── feature_selected_train.csv      # Training features

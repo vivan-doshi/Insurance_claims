@@ -7,6 +7,8 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.metrics import mean_squared_error, roc_auc_score
 import warnings
 import re
+import json # Import json for saving/loading scores
+
 warnings.filterwarnings('ignore')
 
 # Set random seed for reproducibility
@@ -108,13 +110,14 @@ def load_best_params():
     }
 
     # Default parameters if files don't exist (should be replaced by optimized params)
+    # Note: These defaults should ideally be replaced by running hyperparameter optimization
     default_params = {
         'lc': {
-            'objective': 'regression_l2', # Changed to l2 for consistency with tuning
+            'objective': 'tweedie', # Using tweedie as requested
             'metric': 'rmse',
             'boosting_type': 'gbdt',
             'learning_rate': 0.05,
-            'n_estimators': 1000, # Increased default estimators
+            'n_estimators': 1000,
             'max_depth': -1,
             'num_leaves': 64,
             'min_data_in_leaf': 20,
@@ -122,16 +125,16 @@ def load_best_params():
             'lambda_l2': 0.1,
             'bagging_fraction': 0.8,
             'feature_fraction': 0.8,
-            'min_child_weight': 1e-3, # Added default
-            'subsample_freq': 0, # Added default
-            'tweedie_variance_power': 1.5 # Added default for tweedie
+            'min_child_weight': 1e-3,
+            'subsample_freq': 0,
+            'tweedie_variance_power': 1.5 # Default tweedie power
         },
         'halc': {
-            'objective': 'regression_l2', # Changed to l2
+            'objective': 'tweedie', # Using tweedie as requested
             'metric': 'rmse',
             'boosting_type': 'gbdt',
             'learning_rate': 0.05,
-            'n_estimators': 1000, # Increased default estimators
+            'n_estimators': 1000,
             'max_depth': -1,
             'num_leaves': 64,
             'min_data_in_leaf': 20,
@@ -139,16 +142,16 @@ def load_best_params():
             'lambda_l2': 0.1,
             'bagging_fraction': 0.8,
             'feature_fraction': 0.8,
-            'min_child_weight': 1e-3, # Added default
-            'subsample_freq': 0, # Added default
-            'tweedie_variance_power': 1.5 # Added default for tweedie
+            'min_child_weight': 1e-3,
+            'subsample_freq': 0,
+            'tweedie_variance_power': 1.5 # Default tweedie power
         },
         'cs': {
             'objective': 'binary',
             'metric': 'auc',
             'boosting_type': 'gbdt',
             'learning_rate': 0.05,
-            'n_estimators': 1000, # Increased default estimators
+            'n_estimators': 1000,
             'max_depth': -1,
             'num_leaves': 31,
             'min_data_in_leaf': 20,
@@ -159,38 +162,38 @@ def load_best_params():
             'scale_pos_weight': 3.0
         },
         'meta_lc': {
-            'objective': 'regression_l2', # Changed to l2
+            'objective': 'regression_l2', # Meta model can use L2 or Tweedie
             'metric': 'rmse',
             'boosting_type': 'gbdt',
-            'learning_rate': 0.03, # Adjusted default
+            'learning_rate': 0.03,
             'n_estimators': 500,
-            'max_depth': 5, # Adjusted default
-            'num_leaves': 16, # Adjusted default
-            'min_data_in_leaf': 10, # Adjusted default
-            'lambda_l1': 0.01, # Adjusted default
-            'lambda_l2': 0.01, # Adjusted default
-            'bagging_fraction': 0.9, # Adjusted default
-            'feature_fraction': 0.9, # Adjusted default
-            'min_child_weight': 1e-3, # Added default
-            'subsample_freq': 0, # Added default
-            'tweedie_variance_power': 1.5 # Added default for tweedie
+            'max_depth': 5,
+            'num_leaves': 16,
+            'min_data_in_leaf': 10,
+            'lambda_l1': 0.01,
+            'lambda_l2': 0.01,
+            'bagging_fraction': 0.9,
+            'feature_fraction': 0.9,
+            'min_child_weight': 1e-3,
+            'subsample_freq': 0,
+            'tweedie_variance_power': 1.5 # Default tweedie power for meta if used
         },
         'meta_halc': {
-            'objective': 'regression_l2', # Changed to l2
+            'objective': 'regression_l2', # Meta model can use L2 or Tweedie
             'metric': 'rmse',
             'boosting_type': 'gbdt',
-            'learning_rate': 0.03, # Adjusted default
+            'learning_rate': 0.03,
             'n_estimators': 500,
-            'max_depth': 5, # Adjusted default
-            'num_leaves': 16, # Adjusted default
-            'min_data_in_leaf': 10, # Adjusted default
-            'lambda_l1': 0.01, # Adjusted default
-            'lambda_l2': 0.01, # Adjusted default
-            'bagging_fraction': 0.9, # Adjusted default
-            'feature_fraction': 0.9, # Adjusted default
-            'min_child_weight': 1e-3, # Added default
-            'subsample_freq': 0, # Added default
-            'tweedie_variance_power': 1.5 # Added default for tweedie
+            'max_depth': 5,
+            'num_leaves': 16,
+            'min_data_in_leaf': 10,
+            'lambda_l1': 0.01,
+            'lambda_l2': 0.01,
+            'bagging_fraction': 0.9,
+            'feature_fraction': 0.9,
+            'min_child_weight': 1e-3,
+            'subsample_freq': 0,
+            'tweedie_variance_power': 1.5 # Default tweedie power for meta if used
         },
         'meta_cs': {
             'objective': 'binary',
@@ -233,8 +236,9 @@ def load_best_params():
 def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regression_stratification=10):
     print("Training base models...")
 
-    # Create directories for models
+    # Create directories for models and scores
     os.makedirs('models', exist_ok=True)
+    os.makedirs('scores', exist_ok=True)
 
     # Initialize k-fold and stratified k-fold
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=SEED)
@@ -245,10 +249,15 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
     oof_halc = np.zeros(len(X))
     oof_cs = np.zeros(len(X))
 
-    # Initialize lists to store models
-    lc_models = []
-    halc_models = []
-    cs_models = []
+    # Initialize lists to store fold-wise scores
+    lc_fold_scores = []
+    halc_fold_scores = []
+    cs_fold_scores = []
+
+    # Initialize lists to store models (optional, models are saved to disk)
+    # lc_models = []
+    # halc_models = []
+    # cs_models = []
 
     # Bin regression targets for stratification
     y_lc_binned = bin_regression_target(y_lc, n_bins_regression_stratification)
@@ -278,7 +287,7 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
         n_estimators = params.pop('n_estimators') if 'n_estimators' in params else 1000
 
         # Use callbacks for early stopping
-        callbacks = [lgb.early_stopping(100, verbose=False)] # Increased early stopping rounds
+        callbacks = [lgb.early_stopping(100, verbose=False)]
 
         # Train model
         model = lgb.train(
@@ -290,13 +299,18 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
         )
 
         # Make predictions
-        oof_lc[original_val_idx] = model.predict(X_val, num_iteration=model.best_iteration)
+        val_preds = model.predict(X_val, num_iteration=model.best_iteration)
+        oof_lc[original_val_idx] = val_preds
+
+        # Calculate and store fold score (RMSE)
+        fold_rmse = np.sqrt(mean_squared_error(y_val, val_preds))
+        lc_fold_scores.append(fold_rmse)
 
         # Save model
-        lc_models.append(model)
+        # lc_models.append(model)
         model.save_model(f'models/lc_model_fold_{fold}.txt')
 
-        print(f"LC Fold {fold+1} complete")
+        print(f"LC Fold {fold+1} complete. RMSE: {fold_rmse:.4f}")
 
     # HALC models (Stratified CV)
     print("Training HALC base models (Stratified CV)...")
@@ -322,7 +336,7 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
         n_estimators = params.pop('n_estimators') if 'n_estimators' in params else 1000
 
         # Use callbacks for early stopping
-        callbacks = [lgb.early_stopping(100, verbose=False)] # Increased early stopping rounds
+        callbacks = [lgb.early_stopping(100, verbose=False)]
 
         # Train model
         model = lgb.train(
@@ -334,13 +348,18 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
         )
 
         # Make predictions
-        oof_halc[original_val_idx] = model.predict(X_val, num_iteration=model.best_iteration)
+        val_preds = model.predict(X_val, num_iteration=model.best_iteration)
+        oof_halc[original_val_idx] = val_preds
+
+        # Calculate and store fold score (RMSE)
+        fold_rmse = np.sqrt(mean_squared_error(y_val, val_preds))
+        halc_fold_scores.append(fold_rmse)
 
         # Save model
-        halc_models.append(model)
+        # halc_models.append(model)
         model.save_model(f'models/halc_model_fold_{fold}.txt')
 
-        print(f"HALC Fold {fold+1} complete")
+        print(f"HALC Fold {fold+1} complete. RMSE: {fold_rmse:.4f}")
 
     # Claim Status models (Stratified CV)
     print("Training Claim Status base models (Stratified CV)...")
@@ -356,7 +375,7 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
         n_estimators = params.pop('n_estimators') if 'n_estimators' in params else 1000
 
         # Use callbacks for early stopping
-        callbacks = [lgb.early_stopping(50, verbose=False)] # Keep 50 for classification
+        callbacks = [lgb.early_stopping(50, verbose=False)]
 
         # Train model
         model = lgb.train(
@@ -368,22 +387,27 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
         )
 
         # Make predictions
-        oof_cs[val_idx] = model.predict(X_val, num_iteration=model.best_iteration)
+        val_preds = model.predict(X_val, num_iteration=model.best_iteration)
+        oof_cs[val_idx] = val_preds
+
+        # Calculate and store fold score (AUC)
+        fold_auc = roc_auc_score(y_val, val_preds)
+        cs_fold_scores.append(fold_auc)
 
         # Save model
-        cs_models.append(model)
+        # cs_models.append(model)
         model.save_model(f'models/cs_model_fold_{fold}.txt')
 
-        print(f"CS Fold {fold+1} complete")
+        print(f"CS Fold {fold+1} complete. AUC: {fold_auc:.4f}")
 
-    # Evaluate OOF predictions
+    # Evaluate overall OOF predictions
     lc_rmse = np.sqrt(mean_squared_error(y_lc, oof_lc))
     halc_rmse = np.sqrt(mean_squared_error(y_halc, oof_halc))
     cs_auc = roc_auc_score(y_cs, oof_cs)
 
-    print(f"OOF Loss Cost RMSE: {lc_rmse}")
-    print(f"OOF HALC RMSE: {halc_rmse}")
-    print(f"OOF Claim Status AUC: {cs_auc}")
+    print(f"Overall OOF Loss Cost RMSE: {lc_rmse:.4f}")
+    print(f"Overall OOF HALC RMSE: {halc_rmse:.4f}")
+    print(f"Overall OOF Claim Status AUC: {cs_auc:.4f}")
 
     # Save OOF predictions for meta-model training
     oof_df = pd.DataFrame({
@@ -394,15 +418,28 @@ def train_base_models(X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins_regr
         'true_halc': y_halc,
         'true_cs': y_cs
     })
-
     oof_df.to_csv('oof_predictions.csv', index=False)
 
-    return lc_models, halc_models, cs_models, oof_df
+    # Save fold-wise scores for weighted averaging
+    base_model_scores = {
+        'lc_rmse': lc_fold_scores,
+        'halc_rmse': halc_fold_scores,
+        'cs_auc': cs_fold_scores
+    }
+    with open('scores/base_model_fold_scores.json', 'w') as f:
+        json.dump(base_model_scores, f)
+
+    print("Base model fold scores saved to 'scores/base_model_fold_scores.json'")
+
+    # Return None for models as they are saved to disk and reloaded for prediction/meta-training
+    return None, None, None, oof_df
+
 
 def create_meta_features(X, oof_df):
     print("Creating meta features...")
 
     # Create meta-features by combining original features with OOF predictions
+    # The meta-model will learn how to combine these.
     meta_X = X.copy()
     meta_X['oof_lc'] = oof_df['oof_lc']
     meta_X['oof_halc'] = oof_df['oof_halc']
@@ -415,7 +452,7 @@ def train_meta_models(meta_X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins
 
     # Create directories
     os.makedirs('meta_models', exist_ok=True)
-    os.makedirs('plots', exist_ok=True)
+    # os.makedirs('plots', exist_ok=True) # Assuming plots are handled elsewhere
 
     # Initialize k-fold and stratified k-fold
     kf = KFold(n_splits=n_folds, shuffle=True, random_state=SEED)
@@ -426,10 +463,15 @@ def train_meta_models(meta_X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins
     meta_oof_halc = np.zeros(len(meta_X))
     meta_oof_cs = np.zeros(len(meta_X))
 
-    # Initialize lists to store meta models
-    meta_lc_models = []
-    meta_halc_models = []
-    meta_cs_models = []
+    # Initialize lists to store fold-wise meta scores (optional)
+    # meta_lc_fold_scores = []
+    # meta_halc_fold_scores = []
+    # meta_cs_fold_scores = []
+
+    # Initialize lists to store meta models (optional, models are saved to disk)
+    # meta_lc_models = []
+    # meta_halc_models = []
+    # meta_cs_models = []
 
     # Bin regression targets for stratification
     y_lc_binned = bin_regression_target(y_lc, n_bins_regression_stratification)
@@ -443,6 +485,7 @@ def train_meta_models(meta_X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins
     X_lc_non_nan = meta_X.loc[non_nan_indices_lc]
     y_lc_non_nan = y_lc.loc[non_nan_indices_lc]
     y_lc_binned_non_nan = y_lc_binned.loc[non_nan_indices_lc].astype(int)
+
 
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_lc_non_nan, y_lc_binned_non_nan)):
         # Map back to original indices
@@ -472,13 +515,18 @@ def train_meta_models(meta_X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins
         )
 
         # Make predictions
-        meta_oof_lc[original_val_idx] = model.predict(X_val, num_iteration=model.best_iteration)
+        val_preds = model.predict(X_val, num_iteration=model.best_iteration)
+        meta_oof_lc[original_val_idx] = val_preds
+
+        # Calculate and store fold score (RMSE) - optional for meta
+        # fold_rmse = np.sqrt(mean_squared_error(y_val, val_preds))
+        # meta_lc_fold_scores.append(fold_rmse)
 
         # Save model
-        meta_lc_models.append(model)
+        # meta_lc_models.append(model)
         model.save_model(f'meta_models/meta_lc_model_fold_{fold}.txt')
 
-        print(f"Meta LC Fold {fold+1} complete")
+        print(f"Meta LC Fold {fold+1} complete.") # RMSE: {fold_rmse:.4f}")
 
     # Meta HALC models (Stratified CV)
     print("Training Meta HALC models (Stratified CV)...")
@@ -516,13 +564,18 @@ def train_meta_models(meta_X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins
         )
 
         # Make predictions
-        meta_oof_halc[original_val_idx] = model.predict(X_val, num_iteration=model.best_iteration)
+        val_preds = model.predict(X_val, num_iteration=model.best_iteration)
+        meta_oof_halc[original_val_idx] = val_preds
+
+        # Calculate and store fold score (RMSE) - optional for meta
+        # fold_rmse = np.sqrt(mean_squared_error(y_val, val_preds))
+        # meta_halc_fold_scores.append(fold_rmse)
 
         # Save model
-        meta_halc_models.append(model)
+        # meta_halc_models.append(model)
         model.save_model(f'meta_models/meta_halc_model_fold_{fold}.txt')
 
-        print(f"Meta HALC Fold {fold+1} complete")
+        print(f"Meta HALC Fold {fold+1} complete.") # RMSE: {fold_rmse:.4f}")
 
     # Meta Claim Status models (Stratified CV)
     print("Training Meta Claim Status models (Stratified CV)...")
@@ -550,22 +603,27 @@ def train_meta_models(meta_X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins
         )
 
         # Make predictions
-        meta_oof_cs[val_idx] = model.predict(X_val, num_iteration=model.best_iteration)
+        val_preds = model.predict(X_val, num_iteration=model.best_iteration)
+        meta_oof_cs[val_idx] = val_preds
+
+        # Calculate and store fold score (AUC) - optional for meta
+        # fold_auc = roc_auc_score(y_val, val_preds)
+        # meta_cs_fold_scores.append(fold_auc)
 
         # Save model
-        meta_cs_models.append(model)
+        # meta_cs_models.append(model)
         model.save_model(f'meta_models/meta_cs_model_fold_{fold}.txt')
 
-        print(f"Meta CS Fold {fold+1} complete")
+        print(f"Meta CS Fold {fold+1} complete.") # AUC: {fold_auc:.4f}")
 
     # Evaluate meta OOF predictions
     meta_lc_rmse = np.sqrt(mean_squared_error(y_lc, meta_oof_lc))
     meta_halc_rmse = np.sqrt(mean_squared_error(y_halc, meta_oof_halc))
     meta_cs_auc = roc_auc_score(y_cs, meta_oof_cs)
 
-    print(f"Meta OOF Loss Cost RMSE: {meta_lc_rmse}")
-    print(f"Meta OOF HALC RMSE: {meta_halc_rmse}")
-    print(f"Meta OOF Claim Status AUC: {meta_cs_auc}")
+    print(f"Overall Meta OOF Loss Cost RMSE: {meta_lc_rmse:.4f}")
+    print(f"Overall Meta OOF HALC RMSE: {meta_halc_rmse:.4f}")
+    print(f"Overall Meta OOF Claim Status AUC: {meta_cs_auc:.4f}")
 
     # Save meta OOF predictions
     meta_oof_df = pd.DataFrame({
@@ -579,9 +637,10 @@ def train_meta_models(meta_X, y_lc, y_halc, y_cs, best_params, n_folds=5, n_bins
 
     meta_oof_df.to_csv('meta_oof_predictions.csv', index=False)
 
-    return meta_lc_models, meta_halc_models, meta_cs_models
+    # Return None for models as they are saved to disk
+    return None, None, None
 
-def load_models():
+def load_models(n_folds=5):
     print("Loading trained models...")
 
     # Initialize lists to store models
@@ -593,7 +652,7 @@ def load_models():
     meta_models_cs = []
 
     # Load base models
-    for fold in range(5):
+    for fold in range(n_folds):
         try:
             lc_model = lgb.Booster(model_file=f'models/lc_model_fold_{fold}.txt')
             halc_model = lgb.Booster(model_file=f'models/halc_model_fold_{fold}.txt')
@@ -604,9 +663,12 @@ def load_models():
             base_models_cs.append(cs_model)
         except Exception as e:
             print(f"Warning: Could not load base models for fold {fold}: {e}")
+            # If models for a fold are missing, we cannot proceed with weighted averaging
+            # Consider raising an error or skipping prediction if models are incomplete
+            return [], [], [], [], [], [] # Return empty lists to indicate failure
 
     # Load meta models
-    for fold in range(5):
+    for fold in range(n_folds):
         try:
             meta_lc_model = lgb.Booster(model_file=f'meta_models/meta_lc_model_fold_{fold}.txt')
             meta_halc_model = lgb.Booster(model_file=f'meta_models/meta_halc_model_fold_{fold}.txt')
@@ -617,41 +679,96 @@ def load_models():
             meta_cs_models.append(meta_cs_model)
         except Exception as e:
             print(f"Warning: Could not load meta models for fold {fold}: {e}")
+            # If meta models for a fold are missing, the meta prediction step will fail
+            return base_models_lc, base_models_halc, base_models_cs, [], [], [] # Return empty meta lists
+
 
     return base_models_lc, base_models_halc, base_models_cs, meta_models_lc, meta_models_halc, meta_models_cs
 
-def predict(X_test, base_models_lc, base_models_halc, base_models_cs, meta_models_lc, meta_models_halc, meta_models_cs):
+def calculate_weights(scores, score_type='rmse'):
+    """Calculates weights based on fold scores."""
+    if not scores:
+        return [] # Return empty if no scores
+
+    if score_type == 'rmse':
+        # For RMSE, lower is better, so use inverse
+        # Handle potential zero RMSE or very small values by adding a small epsilon
+        epsilon = 1e-6
+        inverse_scores = [1.0 / (s + epsilon) for s in scores]
+        total_inverse = sum(inverse_scores)
+        if total_inverse == 0:
+             return [1.0 / len(scores)] * len(scores) # Equal weights if sum is zero
+        weights = [s / total_inverse for s in inverse_scores]
+    elif score_type == 'auc':
+        # For AUC, higher is better, use scores directly
+        total_score = sum(scores)
+        if total_score == 0:
+             return [1.0 / len(scores)] * len(scores) # Equal weights if sum is zero
+        weights = [s / total_score for s in scores]
+    else:
+        # Default to equal weights if score_type is unknown
+        print(f"Warning: Unknown score type '{score_type}'. Using equal weights.")
+        weights = [1.0 / len(scores)] * len(scores)
+
+    return weights
+
+
+def predict(X_test, base_models_lc, base_models_halc, base_models_cs, meta_models_lc, meta_models_halc, meta_models_cs, n_folds=5):
     print("Making predictions...")
 
-    # Initialize arrays to store predictions from base models
-    test_pred_lc = np.zeros(len(X_test))
-    test_pred_halc = np.zeros(len(X_test))
-    test_pred_cs = np.zeros(len(X_test))
+    # Check if models were loaded successfully
+    if not base_models_lc or not base_models_halc or not base_models_cs:
+        print("Error: Base models not loaded. Cannot make predictions.")
+        return None
 
-    # Make predictions with base models
-    print("Predicting with base models...")
-    # Check if base models were loaded
-    if not base_models_lc:
-        print("Error: Base Loss Cost models not loaded. Cannot make base predictions.")
-        return None, None, None # Return None for predictions if models are missing
-    if not base_models_halc:
-        print("Error: Base HALC models not loaded. Cannot make base predictions.")
-        return None, None, None
-    if not base_models_cs:
-        print("Error: Base Claim Status models not loaded. Cannot make base predictions.")
-        return None, None, None
+    # Load base model fold scores for weighted averaging
+    base_model_scores_path = 'scores/base_model_fold_scores.json'
+    if not os.path.exists(base_model_scores_path):
+        print(f"Error: Base model fold scores file '{base_model_scores_path}' not found. Cannot perform weighted averaging.")
+        # Fallback to simple averaging if scores are missing? Or require scores?
+        # For now, let's require scores for weighted averaging.
+        return None
+
+    with open(base_model_scores_path, 'r') as f:
+        base_model_scores = json.load(f)
+
+    lc_fold_scores = base_model_scores.get('lc_rmse', [])
+    halc_fold_scores = base_model_scores.get('halc_rmse', [])
+    cs_fold_scores = base_model_scores.get('cs_auc', [])
+
+    # Check if we have scores for all folds
+    if len(lc_fold_scores) != n_folds or len(halc_fold_scores) != n_folds or len(cs_fold_scores) != n_folds:
+        print(f"Error: Incomplete fold scores found ({len(lc_fold_scores)}/{n_folds} for LC, {len(halc_fold_scores)}/{n_folds} for HALC, {len(cs_fold_scores)}/{n_folds} for CS). Cannot perform weighted averaging.")
+        return None
 
 
-    for i, (lc_model, halc_model, cs_model) in enumerate(zip(base_models_lc, base_models_halc, base_models_cs)):
-        test_pred_lc += lc_model.predict(X_test) / len(base_models_lc)
-        test_pred_halc += halc_model.predict(X_test) / len(base_models_halc)
-        test_pred_cs += cs_model.predict(X_test) / len(base_models_cs)
+    # Calculate weights based on fold scores
+    lc_weights = calculate_weights(lc_fold_scores, score_type='rmse')
+    halc_weights = calculate_weights(halc_fold_scores, score_type='rmse')
+    cs_weights = calculate_weights(cs_fold_scores, score_type='auc')
 
-    # Create meta features for test data
+    # Initialize arrays to store weighted base predictions
+    weighted_test_pred_lc = np.zeros(len(X_test))
+    weighted_test_pred_halc = np.zeros(len(X_test))
+    weighted_test_pred_cs = np.zeros(len(X_test))
+
+    # Make predictions with base models and apply weights
+    print("Predicting with base models and applying weights...")
+
+    for i in range(n_folds):
+        lc_model = base_models_lc[i]
+        halc_model = base_models_halc[i]
+        cs_model = base_models_cs[i]
+
+        weighted_test_pred_lc += lc_model.predict(X_test) * lc_weights[i]
+        weighted_test_pred_halc += halc_model.predict(X_test) * halc_weights[i]
+        weighted_test_pred_cs += cs_model.predict(X_test) * cs_weights[i]
+
+    # Create meta features for test data using weighted base predictions
     meta_X_test = X_test.copy()
-    meta_X_test['oof_lc'] = test_pred_lc
-    meta_X_test['oof_halc'] = test_pred_halc
-    meta_X_test['oof_cs'] = test_pred_cs
+    meta_X_test['weighted_base_lc'] = weighted_test_pred_lc
+    meta_X_test['weighted_base_halc'] = weighted_test_pred_halc
+    meta_X_test['weighted_base_cs'] = weighted_test_pred_cs
 
     # Initialize arrays to store meta model predictions
     meta_test_pred_lc = np.zeros(len(X_test))
@@ -660,22 +777,22 @@ def predict(X_test, base_models_lc, base_models_halc, base_models_cs, meta_model
 
     # Make predictions with meta models
     print("Predicting with meta models...")
-    # Check if meta models were loaded
-    if not meta_models_lc:
-        print("Error: Meta Loss Cost models not loaded. Cannot make meta predictions.")
-        return None, None, None # Return None for predictions if models are missing
-    if not meta_models_halc:
-        print("Error: Meta HALC models not loaded. Cannot make meta predictions.")
-        return None, None, None
-    if not meta_models_cs:
-        print("Error: Meta Claim Status models not loaded. Cannot make meta predictions.")
-        return None, None, None
+    # Check if meta models were loaded successfully
+    if not meta_models_lc or not meta_models_halc or not meta_models_cs:
+        print("Error: Meta models not loaded. Cannot make meta predictions.")
+        # In this case, you might choose to return the weighted base predictions
+        # or return None depending on your desired pipeline behavior.
+        # Let's return None to indicate the full ensemble prediction failed.
+        return None
 
+    for i in range(n_folds):
+        meta_lc_model = meta_models_lc[i]
+        meta_halc_model = meta_models_halc[i]
+        meta_cs_model = meta_models_cs[i]
 
-    for i, (lc_model, halc_model, cs_model) in enumerate(zip(meta_models_lc, meta_models_halc, meta_models_cs)):
-        meta_test_pred_lc += lc_model.predict(meta_X_test) / len(meta_models_lc)
-        meta_test_pred_halc += halc_model.predict(meta_X_test) / len(meta_halc_models)
-        meta_test_pred_cs += cs_model.predict(meta_X_test) / len(meta_models_cs)
+        meta_test_pred_lc += meta_lc_model.predict(meta_X_test) / len(meta_models_lc)
+        meta_test_pred_halc += meta_halc_model.predict(meta_X_test) / len(meta_halc_models)
+        meta_test_pred_cs += meta_cs_model.predict(meta_X_test) / len(meta_models_cs)
 
     # Create final predictions DataFrame
     final_predictions = pd.DataFrame({
@@ -696,23 +813,34 @@ def main():
     best_params = load_best_params()
 
     # Initialize model lists to ensure they are defined in the scope
-    lc_models, halc_models, cs_models = [], [], []
+    # Models are loaded from disk, so these are not used directly for training
+    # but are needed for loading in the predict step.
+    base_models_lc, base_models_halc, base_models_cs = [], [], []
     meta_lc_models, meta_halc_models, meta_cs_models = [], [], []
     oof_df = None # Initialize oof_df as well
 
 
     if args.train or args.train_base:
         # Train base models
-        lc_models, halc_models, cs_models, oof_df = train_base_models(
+        # train_base_models now returns None for models, but saves them to disk
+        _, _, _, oof_df = train_base_models(
             X_train, y_lc, y_halc, y_cs, best_params, args.n_folds, args.n_bins_regression_stratification
         )
 
         if args.train or args.train_meta:
             # Create meta features
+            # oof_df is available from base training or loaded from file
+            if oof_df is None and os.path.exists('oof_predictions.csv'):
+                 oof_df = pd.read_csv('oof_predictions.csv')
+            elif oof_df is None:
+                 print("Error: OOF predictions not available. Cannot train meta models.")
+                 return # Exit if OOF is missing
+
             meta_X = create_meta_features(X_train, oof_df)
 
             # Train meta models
-            meta_lc_models, meta_halc_models, meta_cs_models = train_meta_models(
+            # train_meta_models now returns None for models, but saves them to disk
+            _, _, _ = train_meta_models(
                 meta_X, y_lc, y_halc, y_cs, best_params, args.n_folds, args.n_bins_regression_stratification
             )
 
@@ -726,7 +854,8 @@ def main():
             meta_X = create_meta_features(X_train, oof_df)
 
             # Train meta models
-            meta_lc_models, meta_halc_models, meta_cs_models = train_meta_models(
+            # train_meta_models now returns None for models, but saves them to disk
+            _, _, _ = train_meta_models(
                 meta_X, y_lc, y_halc, y_cs, best_params, args.n_folds, args.n_bins_regression_stratification
             )
         else:
@@ -735,14 +864,11 @@ def main():
 
     if args.predict:
         # Load trained models - these will overwrite the initialized empty lists if successful
-        base_models_lc, base_models_halc, base_models_cs, meta_models_lc, meta_models_halc, meta_models_cs = load_models()
-
-        # Check if models were loaded successfully
-        if not base_models_lc or not meta_models_lc:
-            print("Error: Could not load required models. Make sure to train base and meta models first.")
-            return
+        # load_models now takes n_folds as argument
+        base_models_lc, base_models_halc, base_models_cs, meta_models_lc, meta_models_halc, meta_models_cs = load_models(args.n_folds)
 
         # Make predictions
+        # predict now takes n_folds as argument
         final_predictions = predict(
             X_test,
             base_models_lc,
@@ -750,7 +876,8 @@ def main():
             base_models_cs,
             meta_models_lc,
             meta_models_halc,
-            meta_models_cs
+            meta_models_cs,
+            args.n_folds # Pass n_folds to predict
         )
 
         # Check if predictions were generated successfully
@@ -768,3 +895,4 @@ if __name__ == "__main__":
     print("=" * 80)
     print("PIPELINE COMPLETE")
     print("=" * 80)
+
