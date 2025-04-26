@@ -28,8 +28,9 @@ CV_RESULTS_DIR = os.path.join(BASE_DIR, "013_CV_Results") # Folder to save CV re
 FINAL_DIR = os.path.join(BASE_DIR, "99_Final_File") # Directory for final output
 
 # Input files
-TRAIN_FEATURES_FILE = os.path.join(DATA_DIR, "feature_selected_train.csv")
-TEST_FEATURES_FILE = os.path.join(DATA_DIR, "feature_selected_test.csv") # For final prediction
+TRAIN_FEATURES_FILE = os.path.join(DATA_DIR, "feature_selected_train.csv") # Contains training features
+TRAIN_TARGETS_FILE = os.path.join(DATA_DIR, "feature_selected_y_train.csv") # Contains training targets
+TEST_FEATURES_FILE = os.path.join(DATA_DIR, "feature_selected_test.csv") # For final prediction features
 
 # Output file: Final predictions (using group number 29)
 PREDICTION_FILENAME = "group_29_prediction.csv"
@@ -46,9 +47,17 @@ try:
     if not os.path.exists(TRAIN_FEATURES_FILE):
         print(f"Error: Training features file not found at '{TRAIN_FEATURES_FILE}'")
         exit()
-    # Load training data, assuming it contains features and targets
-    data = pd.read_csv(TRAIN_FEATURES_FILE, index_col=0)
-    print(f"Training data loaded successfully. Shape: {data.shape}")
+    # Load training features
+    X = pd.read_csv(TRAIN_FEATURES_FILE, index_col=0)
+    print(f"Training features loaded successfully. Shape: {X.shape}")
+
+    print(f"Loading training targets from: {TRAIN_TARGETS_FILE}")
+    if not os.path.exists(TRAIN_TARGETS_FILE):
+        print(f"Error: Training targets file not found at '{TRAIN_TARGETS_FILE}'")
+        exit()
+    # Load training targets
+    y = pd.read_csv(TRAIN_TARGETS_FILE, index_col=0)
+    print(f"Training targets loaded successfully. Shape: {y.shape}")
 
     print(f"Loading test features from: {TEST_FEATURES_FILE}")
     if not os.path.exists(TEST_FEATURES_FILE):
@@ -64,24 +73,27 @@ except Exception as e:
     print(f"An unexpected error occurred during data loading: {e}")
     exit()
 
-# Define features (X) and targets (y)
-# Assuming the target columns are named 'Loss_Cost', 'Historically_Adjusted_Loss_Cost', 'Claim_Status'
+# Define target column names
 TARGET_LOSS_COST = 'Loss_Cost'
 TARGET_HIST_LOSS_COST = 'Historically_Adjusted_Loss_Cost'
 TARGET_CLAIM_STATUS = 'Claim_Status'
 
-target_columns = [TARGET_LOSS_COST, TARGET_HIST_LOSS_COST, TARGET_CLAIM_STATUS]
-feature_columns = [col for col in data.columns if col not in target_columns]
+# Ensure target columns exist in the loaded training targets
+if not all(col in y.columns for col in [TARGET_LOSS_COST, TARGET_HIST_LOSS_COST, TARGET_CLAIM_STATUS]):
+    print("Error: Training targets file does not contain expected target columns.")
+    print(f"Expected: {[TARGET_LOSS_COST, TARGET_HIST_LOSS_COST, TARGET_CLAIM_STATUS]}")
+    print(f"Found: {y.columns.tolist()}")
+    exit()
 
-X = data[feature_columns]
-y = data[target_columns]
 
-print(f"\nFeatures shape: {X.shape}")
-print(f"Targets shape: {y.shape}")
+print(f"\nTraining Features shape: {X.shape}")
+print(f"Training Targets shape: {y.shape}")
+print(f"Test Features shape: {X_test_final.shape}")
+
 
 # --- Preprocessing ---
 
-# Handle categorical target for Claim_Status
+# Handle categorical target for Claim_Status (using training data for fitting)
 print("\nEncoding Claim_Status target...")
 label_encoder = LabelEncoder()
 y_claim_status_encoded = label_encoder.fit_transform(y[TARGET_CLAIM_STATUS])
@@ -97,7 +109,7 @@ try:
 except Exception as e:
     print(f"Error saving label encoder: {e}")
 
-# Bin continuous targets for stratified cross-validation
+# Bin continuous targets for stratified cross-validation (using training data for fitting)
 # Using QuantileTransformer for binning
 n_bins = 10 # You can adjust the number of bins
 print(f"\nBinning continuous targets ({TARGET_LOSS_COST}, {TARGET_HIST_LOSS_COST}) for stratification using {n_bins} bins...")
@@ -148,7 +160,7 @@ for fold, (train_index, val_index) in enumerate(skf.split(X, y_stratify_key)):
     print(f"\n--- Fold {fold + 1}/{n_splits} ---")
 
     X_train, X_val = X.iloc[train_index], X.iloc[val_index]
-    y_train, y_val = y.iloc[train_index], y.iloc[val_index]
+    y_train, y_val = y.iloc[train_index], y.iloc[val_index] # Correctly using y loaded from TRAIN_TARGETS_FILE
     y_train_cs_encoded, y_val_cs_encoded = y_claim_status_encoded[train_index], y_claim_status_encoded[val_index]
 
     fold_metrics = {'fold': fold + 1}
@@ -262,15 +274,78 @@ print("\nCross-validation completed.")
 # --- Aggregate and Display CV Results ---
 print("\nAggregated Cross-Validation Results:")
 cv_metrics_df = pd.DataFrame(metrics_list)
-print(cv_metrics_df.mean())
 
-# You can save the aggregated metrics to a file if needed
-cv_metrics_df.mean().to_csv(os.path.join(CV_RESULTS_DIR, "aggregated_cv_metrics.csv"), header=True)
+# Exclude 'cs_confusion_matrix' column before calculating mean
+numeric_cv_metrics_df = cv_metrics_df.drop(columns=['cs_confusion_matrix'])
+
+print(numeric_cv_metrics_df.mean())
+
+# Save the aggregated numeric metrics to a file
+numeric_cv_metrics_df.mean().to_csv(os.path.join(CV_RESULTS_DIR, "aggregated_cv_metrics.csv"), header=True)
 print(f"\nAggregated metrics saved to: {os.path.join(CV_RESULTS_DIR, 'aggregated_cv_metrics.csv')}")
 
-# Note: SHAP values from each fold are stored in shap_values_list and can be analyzed further.
-# Storing all SHAP values for all folds might consume significant memory/disk space for large datasets.
-# For simplicity, they are kept in memory here. You might want to save them to disk if needed.
+# --- Generate and Save SHAP Summary Plots ---
+print("\nGenerating and saving SHAP summary plots...")
+
+# Concatenate SHAP values from all folds for plotting
+# Note: This assumes the order of features is consistent across folds, which it should be.
+# For large datasets, concatenating all SHAP values might require significant memory.
+try:
+    # Loss Cost SHAP Summary Plot
+    if shap_values_list['loss_cost']:
+        all_shap_lc = np.concatenate(shap_values_list['loss_cost'], axis=0)
+        # Need a background dataset for shap.summary_plot
+        # Using a sample of the training data features for the background
+        background_sample_lc = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
+        print("Generating SHAP summary plot for Loss Cost...")
+        plt.figure(figsize=(10, 8))
+        shap.summary_plot(all_shap_lc, X.iloc[skf.split(X, y_stratify_key).__next__()[1]].columns, show=False) # Use columns from one validation set
+        plt.title("SHAP Summary Plot - Loss Cost")
+        plt.tight_layout()
+        plt.savefig(os.path.join(CV_RESULTS_DIR, "shap_summary_loss_cost.png"))
+        plt.close()
+        print(f"SHAP summary plot saved for Loss Cost to: {os.path.join(CV_RESULTS_DIR, 'shap_summary_loss_cost.png')}")
+    else:
+        print("No SHAP values collected for Loss Cost to plot.")
+
+
+    # Historically Adjusted Loss Cost SHAP Summary Plot
+    if shap_values_list['hist_adj_loss_cost']:
+        all_shap_hlc = np.concatenate(shap_values_list['hist_adj_loss_cost'], axis=0)
+        background_sample_hlc = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
+        print("Generating SHAP summary plot for Historically Adjusted Loss Cost...")
+        plt.figure(figsize=(10, 8))
+        shap.summary_plot(all_shap_hlc, X.iloc[skf.split(X, y_stratify_key).__next__()[1]].columns, show=False) # Use columns from one validation set
+        plt.title("SHAP Summary Plot - Historically Adjusted Loss Cost")
+        plt.tight_layout()
+        plt.savefig(os.path.join(CV_RESULTS_DIR, "shap_summary_hist_adj_loss_cost.png"))
+        plt.close()
+        print(f"SHAP summary plot saved for Historically Adjusted Loss Cost to: {os.path.join(CV_RESULTS_DIR, 'shap_summary_hist_adj_loss_cost.png')}")
+    else:
+        print("No SHAP values collected for Historically Adjusted Loss Cost to plot.")
+
+    # Claim Status SHAP Summary Plot
+    if shap_values_list['claim_status']:
+         # For binary classification, shap_values_list['claim_status'] contains SHAP values for the positive class (index 1)
+        all_shap_cs = np.concatenate(shap_values_list['claim_status'], axis=0)
+        background_sample_cs = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
+        print("Generating SHAP summary plot for Claim Status...")
+        plt.figure(figsize=(10, 8))
+        # For classification, the expected_value is often a list, need to handle this for plotting
+        # A common approach is to use the mean of the expected values from the explainers
+        # However, shap.summary_plot often works directly with the SHAP values array and feature names
+        shap.summary_plot(all_shap_cs, X.iloc[skf.split(X, y_stratify_key).__next__()[1]].columns, show=False) # Use columns from one validation set
+        plt.title("SHAP Summary Plot - Claim Status")
+        plt.tight_layout()
+        plt.savefig(os.path.join(CV_RESULTS_DIR, "shap_summary_claim_status.png"))
+        plt.close()
+        print(f"SHAP summary plot saved for Claim Status to: {os.path.join(CV_RESULTS_DIR, 'shap_summary_claim_status.png')}")
+    else:
+        print("No SHAP values collected for Claim Status to plot.")
+
+except Exception as e:
+    print(f"Error generating SHAP summary plots: {e}")
+
 
 # --- Train Final Models on 100% Data ---
 print("\nTraining final models on 100% training data...")

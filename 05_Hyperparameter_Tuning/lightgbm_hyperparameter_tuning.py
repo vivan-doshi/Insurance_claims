@@ -5,7 +5,8 @@ import lightgbm as lgb
 import optuna
 from sklearn.model_selection import KFold, StratifiedKFold
 # Use StratifiedKFold for both, but apply differently
-from sklearn.metrics import mean_tweedie_deviance, roc_auc_score, make_scorer
+# Import mean_squared_error for RMSE
+from sklearn.metrics import mean_tweedie_deviance, roc_auc_score, make_scorer, mean_squared_error
 from sklearn.model_selection import cross_val_score # Keep for classification
 from sklearn.preprocessing import KBinsDiscretizer # Alternative binning
 import logging
@@ -32,7 +33,7 @@ TRAIN_TARGET_FILE = os.path.join(DATA_DIR, 'feature_selected_y_train.csv')
 N_TRIALS = 50  # Adjust as needed
 CV_FOLDS = 5   # Adjust as needed
 RANDOM_STATE = 42
-TWEEDIE_POWER = 1.5
+TWEEDIE_POWER = 1.5 # Keep for potential future use or comparison, but RMSE is the tuning metric now
 N_BINS_FOR_STRATIFICATION = 4 # User's desired number of bins (adjust if needed)
 
 
@@ -41,16 +42,16 @@ TARGETS_TO_TUNE = [
     {
         'name': 'Loss_Cost',
         'task_type': 'regression',
-        'direction': 'minimize',
-        'metric_display': f'Mean Tweedie Deviance (Power={TWEEDIE_POWER})',
-        'output_filename': f'lgbm_study_Loss_Cost_stratified_{N_TRIALS}trials.pkl'
+        'direction': 'minimize', # Minimize RMSE
+        'metric_display': 'RMSE', # Display RMSE
+        'output_filename': f'lgbm_study_Loss_Cost_stratified_RMSE_{N_TRIALS}trials.pkl' # Update filename
     },
     {
         'name': 'Historically_Adjusted_Loss_Cost',
         'task_type': 'regression',
-        'direction': 'minimize',
-        'metric_display': f'Mean Tweedie Deviance (Power={TWEEDIE_POWER})',
-        'output_filename': f'lgbm_study_HALC_stratified_{N_TRIALS}trials.pkl'
+        'direction': 'minimize', # Minimize RMSE
+        'metric_display': 'RMSE', # Display RMSE
+        'output_filename': f'lgbm_study_HALC_stratified_RMSE_{N_TRIALS}trials.pkl' # Update filename
     },
     {
         'name': 'Claim_Status',
@@ -93,6 +94,14 @@ def roc_auc_scorer_func(y_true, y_pred_proba):
      """Calculates ROC AUC score - standalone function."""
      return roc_auc_score(y_true, y_pred_proba)
 
+# Define RMSE scorer function
+def rmse_scorer_func(y_true, y_pred):
+    """Calculates Root Mean Squared Error (RMSE)."""
+    # Ensure predictions are non-negative if applicable (e.g., for loss costs)
+    # y_pred = np.maximum(y_pred, 0) # Uncomment if negative predictions are not desired
+    return np.sqrt(mean_squared_error(y_true, y_pred))
+
+
 # --- Combined Objective Function ---
 def objective(trial):
     """Optuna objective function - adapts based on global current_task_type."""
@@ -118,12 +127,15 @@ def objective(trial):
 
     # Task-Specific Parameters and Model Instantiation
     if current_task_type == 'regression':
-        params['objective'] = 'tweedie'
-        params['metric'] = 'None' # Using custom CV score
-        params['tweedie_variance_power'] = trial.suggest_float('tweedie_variance_power', 1.1, 1.9)
+        # Use 'regression_l1' or 'regression_l2' or keep 'tweedie' depending on preference,
+        # but the tuning metric is now RMSE regardless of the objective function.
+        # 'regression_l2' (MSE) is often a good default when optimizing for RMSE.
+        params['objective'] = 'regression_l2' # Using MSE objective, optimizing for RMSE metric
+        params['metric'] = 'rmse' # LightGBM can calculate RMSE internally, but we use custom CV score
+        # params['tweedie_variance_power'] = trial.suggest_float('tweedie_variance_power', 1.1, 1.9) # Remove or keep if still relevant for the objective
         model_class = lgb.LGBMRegressor
-        scorer = tweedie_deviance_scorer_func
-        metric_name_for_error = f"Mean Tweedie Deviance (Power={TWEEDIE_POWER})"
+        scorer = rmse_scorer_func # Use the new RMSE scorer
+        metric_name_for_error = 'RMSE'
         direction_for_error = 'minimize'
         # CV strategy determined in main loop based on binning success/failure
         if use_fallback_cv or y_binned_global is None:
@@ -160,7 +172,7 @@ def objective(trial):
                 model = model_class(**params)
                 model.fit(X_train_fold, y_train_fold)
                 y_pred_fold = model.predict(X_val_fold)
-                fold_score = scorer(y_val_fold, y_pred_fold) # Use standalone scorer function
+                fold_score = scorer(y_val_fold, y_pred_fold) # Use the selected scorer function (RMSE)
                 fold_scores.append(fold_score)
             score = np.mean(fold_scores)
 
