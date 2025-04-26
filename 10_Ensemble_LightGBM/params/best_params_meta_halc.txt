@@ -1,15 +1,17 @@
-boosting_type: gbdt
-learning_rate: 0.06591950433895642
-n_estimators: 1340
-num_leaves: 27
-max_depth: 5
-min_child_samples: 27
-min_child_weight: 0.00019081726597890126
-max_bin: 457
-lambda_l1: 0.033974042294379614
-lambda_l2: 0.00233895895794641
-min_gain_to_split: 0.050539278207335274
-subsample: 0.963794493090865
-colsample_bytree: 0.9841820029097109
-subsample_freq: 3
-tweedie_variance_power: 1.4038046849782178
+{
+    "n_estimators": 1703,
+    "learning_rate": 0.06207434675074835,
+    "num_leaves": 101,
+    "max_depth": 1,
+    "min_child_samples": 12,
+    "min_child_weight": 0.0003487688075511121,
+    "max_bin": 270,
+    "lambda_l1": 0.07601762614845566,
+    "lambda_l2": 2.6225255607116434e-07,
+    "min_gain_to_split": 0.0847174320798732,
+    "subsample": 0.830259910657872,
+    "colsample_bytree": 0.8660140393344015,
+    "subsample_freq": 1,
+    "tweedie_variance_power": 1.7130011815189712,
+    "boosting_type": "gbdt"
+}

@@ -1,14 +1,16 @@
-boosting_type: gbdt
-learning_rate: 0.01457961704936222
-n_estimators: 1165
-num_leaves: 39
-max_depth: 3
-min_data_in_leaf: 94
-max_bin: 128
-lambda_l1: 2.0651813171034763e-07
-lambda_l2: 1.0167042966457114e-07
-min_gain_to_split: 0.0048870283995424415
-bagging_fraction: 0.6399578565412823
-bagging_freq: 2
-feature_fraction: 0.9786083737938251
-scale_pos_weight: 7.554933131345371
+{
+    "n_estimators": 819,
+    "learning_rate": 0.06412448016044053,
+    "num_leaves": 70,
+    "max_depth": 3,
+    "min_data_in_leaf": 60,
+    "max_bin": 211,
+    "lambda_l1": 1.956016065748923e-06,
+    "lambda_l2": 0.02202743662870499,
+    "min_gain_to_split": 0.07343867422526303,
+    "bagging_fraction": 0.8695261690483341,
+    "bagging_freq": 6,
+    "feature_fraction": 0.7551048771749194,
+    "scale_pos_weight": 2.8724825114227595,
+    "boosting_type": "gbdt"
+}

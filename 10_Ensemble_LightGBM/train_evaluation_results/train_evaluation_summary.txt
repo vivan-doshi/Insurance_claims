@@ -1,0 +1,45 @@
+Ensemble Model Training Evaluation Summary (5-Fold Cross-Validation)
+============================================================
+Date: 2025-04-25 17:00:46
+Number of folds: 5
+
+Average Cross-Validation Scores:
+--------------------------------
+base_lc_rmse: 845.0466
+base_lc_tweedie_deviance: 1817242.8331
+base_halc_rmse: 1584.0327
+base_halc_tweedie_deviance: 3779077.5111
+base_cs_auc: 0.8101
+base_cs_f1: 0.4121
+base_cs_precision: 0.3497
+base_cs_recall: 0.5021
+base_cs_avg_confusion_matrix: 
+[[29420  3880]
+ [ 2067  2084]]
+meta_lc_rmse: 943.3950
+meta_lc_tweedie_deviance: 679870.6715
+meta_halc_rmse: 1861.0225
+meta_halc_tweedie_deviance: 1418613.0013
+meta_cs_auc: 0.7708
+meta_cs_f1: 0.3624
+meta_cs_precision: 0.3226
+meta_cs_recall: 0.4134
+meta_cs_avg_confusion_matrix: 
+[[29696  3604]
+ [ 2435  1716]]
+
+Fold-wise scores saved to 'train_evaluation_results/fold_cv_scores.json'.
+
+Plots Generated:
+----------------
+- Actual vs. Predicted for LC and HALC, and Base Model Confusion Matrix for CS (using last CV fold data): 'train_evaluation_plots/train_actual_vs_predicted_and_cm.png'
+- Meta Model Confusion Matrix for CS (using average CV matrix): 'train_evaluation_plots/train_meta_cm.png'
+- SHAP Summary Plots for Base Models (trained on full data) saved in 'train_evaluation_plots/base_full_shap_summary_[target].png'
+- SHAP Summary Plots for Meta Models (trained on full data) saved in 'train_evaluation_plots/meta_full_shap_summary_[target].png'
+
+SHAP Values Saved:
+------------------
+- Base Model SHAP values (full data): 'train_evaluation_results/base_full_shap_values.joblib'
+- Meta Model SHAP values (full data): 'train_evaluation_results/meta_full_shap_values.joblib'
+
+Evaluation complete.
