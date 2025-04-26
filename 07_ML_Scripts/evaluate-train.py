@@ -11,6 +11,7 @@ import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import QuantileTransformer # For binning continuous variables
+import joblib # Import joblib to load Optuna study files
 
 # --- Configuration ---
 # User-specified Path Configuration: Use parent of the Current Working Directory
@@ -26,6 +27,8 @@ DATA_DIR = os.path.join(BASE_DIR, "01_Data")
 MODELS_DIR = os.path.join(BASE_DIR, "012_Models") # Folder to save final models
 CV_RESULTS_DIR = os.path.join(BASE_DIR, "013_CV_Results") # Folder to save CV results (metrics, plots, SHAPs)
 FINAL_DIR = os.path.join(BASE_DIR, "99_Final_File") # Directory for final output
+# Directory where hyperparameter tuning results are stored
+HYPERPARAMS_DIR = os.path.join(BASE_DIR, "011_Hyperparameters")
 
 # Input files
 TRAIN_FEATURES_FILE = os.path.join(DATA_DIR, "feature_selected_train.csv") # Contains training features
@@ -40,6 +43,17 @@ PREDICTIONS_OUTPUT_FILE = os.path.join(FINAL_DIR, PREDICTION_FILENAME)
 os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(CV_RESULTS_DIR, exist_ok=True)
 os.makedirs(FINAL_DIR, exist_ok=True)
+
+# Define target column names (must match those used in tuning script)
+TARGET_LOSS_COST = 'Loss_Cost'
+TARGET_HIST_LOSS_COST = 'Historically_Adjusted_Loss_Cost'
+TARGET_CLAIM_STATUS = 'Claim_Status'
+
+# Define filenames for the saved Optuna study files (must match tuning script output)
+# Adjust these filenames if they are different in your tuning script
+STUDY_FILE_LC = os.path.join(HYPERPARAMS_DIR, 'lgbm_study_Loss_Cost_stratified_RMSE_TweedieTune_50trials.pkl') # Example filename, update if needed
+STUDY_FILE_HLC = os.path.join(HYPERPARAMS_DIR, 'lgbm_study_HALC_stratified_RMSE_TweedieTune_50trials.pkl') # Example filename, update if needed
+STUDY_FILE_CS = os.path.join(HYPERPARAMS_DIR, 'lgbm_study_Claim_Status_50trials.pkl') # Example filename, update if needed
 
 # --- Load Data ---
 print(f"\nLoading training features from: {TRAIN_FEATURES_FILE}")
@@ -57,6 +71,10 @@ try:
         exit()
     # Load training targets
     y = pd.read_csv(TRAIN_TARGETS_FILE, index_col=0)
+    # Check for and remove potential unnamed index column from CSV read
+    if 'Unnamed: 0' in y.columns:
+        print("Removing 'Unnamed: 0' column from target DataFrame.")
+        y = y.drop(columns=['Unnamed: 0'])
     print(f"Training targets loaded successfully. Shape: {y.shape}")
 
     print(f"Loading test features from: {TEST_FEATURES_FILE}")
@@ -73,11 +91,6 @@ except Exception as e:
     print(f"An unexpected error occurred during data loading: {e}")
     exit()
 
-# Define target column names
-TARGET_LOSS_COST = 'Loss_Cost'
-TARGET_HIST_LOSS_COST = 'Historically_Adjusted_Loss_Cost'
-TARGET_CLAIM_STATUS = 'Claim_Status'
-
 # Ensure target columns exist in the loaded training targets
 if not all(col in y.columns for col in [TARGET_LOSS_COST, TARGET_HIST_LOSS_COST, TARGET_CLAIM_STATUS]):
     print("Error: Training targets file does not contain expected target columns.")
@@ -89,6 +102,62 @@ if not all(col in y.columns for col in [TARGET_LOSS_COST, TARGET_HIST_LOSS_COST,
 print(f"\nTraining Features shape: {X.shape}")
 print(f"Training Targets shape: {y.shape}")
 print(f"Test Features shape: {X_test_final.shape}")
+
+# --- Load Tuned Hyperparameters ---
+print("\nLoading tuned hyperparameters...")
+tuned_params = {}
+
+try:
+    # Load Loss Cost Hyperparameters
+    if os.path.exists(STUDY_FILE_LC):
+        study_lc = joblib.load(STUDY_FILE_LC)
+        tuned_params[TARGET_LOSS_COST] = study_lc.best_params
+        print(f"Loaded tuned hyperparameters for {TARGET_LOSS_COST}.")
+    else:
+        print(f"Warning: Tuned hyperparameters file not found for {TARGET_LOSS_COST} at '{STUDY_FILE_LC}'. Using default/hardcoded parameters.")
+        # Define default/fallback parameters if the tuned file is missing
+        tuned_params[TARGET_LOSS_COST] = {'objective': 'tweedie', 'metric': 'rmse', 'tweedie_variance_power': 1.5, 'random_state': 42}
+
+    # Load Historically Adjusted Loss Cost Hyperparameters
+    if os.path.exists(STUDY_FILE_HLC):
+        study_hlc = joblib.load(STUDY_FILE_HLC)
+        tuned_params[TARGET_HIST_LOSS_COST] = study_hlc.best_params
+        print(f"Loaded tuned hyperparameters for {TARGET_HIST_LOSS_COST}.")
+    else:
+        print(f"Warning: Tuned hyperparameters file not found for {TARGET_HIST_LOSS_COST} at '{STUDY_FILE_HLC}'. Using default/hardcoded parameters.")
+        # Define default/fallback parameters if the tuned file is missing
+        tuned_params[TARGET_HIST_LOSS_COST] = {'objective': 'tweedie', 'metric': 'rmse', 'tweedie_variance_power': 1.5, 'random_state': 42}
+
+    # Load Claim Status Hyperparameters
+    if os.path.exists(STUDY_FILE_CS):
+        study_cs = joblib.load(STUDY_FILE_CS)
+        tuned_params[TARGET_CLAIM_STATUS] = study_cs.best_params
+        print(f"Loaded tuned hyperparameters for {TARGET_CLAIM_STATUS}.")
+    else:
+        print(f"Warning: Tuned hyperparameters file not found for {TARGET_CLAIM_STATUS} at '{STUDY_FILE_CS}'. Using default/hardcoded parameters.")
+        # Define default/fallback parameters if the tuned file is missing
+        tuned_params[TARGET_CLAIM_STATUS] = {'objective': 'binary', 'metric': 'auc', 'random_state': 42}
+
+except Exception as e:
+    print(f"Error loading tuned hyperparameters: {e}. Using default/hardcoded parameters for all models.")
+    # Fallback to default parameters for all if any error occurs during loading
+    tuned_params = {
+        TARGET_LOSS_COST: {'objective': 'tweedie', 'metric': 'rmse', 'tweedie_variance_power': 1.5, 'random_state': 42},
+        TARGET_HIST_LOSS_COST: {'objective': 'tweedie', 'metric': 'rmse', 'tweedie_variance_power': 1.5, 'random_state': 42},
+        TARGET_CLAIM_STATUS: {'objective': 'binary', 'metric': 'auc', 'random_state': 42}
+    }
+
+# Add random_state to loaded params if not present (important for reproducibility)
+for target in tuned_params:
+    if 'random_state' not in tuned_params[target]:
+        tuned_params[target]['random_state'] = 42 # Use a consistent random state
+    # Ensure verbosity is suppressed during CV and final training
+    tuned_params[target]['verbose'] = -1
+    tuned_params[target]['n_jobs'] = -1 # Use all available cores
+
+print("\nHyperparameters to be used:")
+for target, params in tuned_params.items():
+    print(f"- {target}: {params}")
 
 
 # --- Preprocessing ---
@@ -167,14 +236,17 @@ for fold, (train_index, val_index) in enumerate(skf.split(X, y_stratify_key)):
 
     # --- Train and Evaluate Loss Cost Model ---
     print("Training Loss Cost model...")
-    lgbm_lc = lgb.LGBMRegressor(objective='tweedie', metric='rmse', tweedie_variance_power=1.5, random_state=42) # Tweedie objective for Loss Cost
+    # Use loaded tuned parameters for the model
+    lgbm_lc = lgb.LGBMRegressor(**tuned_params[TARGET_LOSS_COST])
     lgbm_lc.fit(X_train, y_train[TARGET_LOSS_COST])
     y_pred_lc = lgbm_lc.predict(X_val)
     y_pred_lc = np.maximum(0, y_pred_lc) # Ensure non-negative predictions
 
     # Calculate Loss Cost metrics
     rmse_lc = mean_squared_error(y_val[TARGET_LOSS_COST], y_pred_lc, squared=False)
-    tweedie_dev_lc = mean_tweedie_deviance(y_val[TARGET_LOSS_COST], y_pred_lc, power=1.5)
+    # Use the tweedie_variance_power from the tuned parameters for deviance calculation
+    # Ensure actual values are non-negative and predicted values are strictly positive for tweedie deviance calculation
+    tweedie_dev_lc = mean_tweedie_deviance(np.maximum(0, y_val[TARGET_LOSS_COST]), np.maximum(0, y_pred_lc) + np.finfo(float).eps, power=tuned_params[TARGET_LOSS_COST].get('tweedie_variance_power', 1.5))
     fold_metrics['lc_rmse'] = rmse_lc
     fold_metrics['lc_tweedie_deviance'] = tweedie_dev_lc
     print(f"Loss Cost - RMSE: {rmse_lc:.4f}, Tweedie Deviance: {tweedie_dev_lc:.4f}")
@@ -200,14 +272,17 @@ for fold, (train_index, val_index) in enumerate(skf.split(X, y_stratify_key)):
 
     # --- Train and Evaluate Historically Adjusted Loss Cost Model ---
     print("Training Historically Adjusted Loss Cost model...")
-    lgbm_hlc = lgb.LGBMRegressor(objective='tweedie', metric='rmse', tweedie_variance_power=1.5, random_state=42) # Tweedie objective
+    # Use loaded tuned parameters for the model
+    lgbm_hlc = lgb.LGBMRegressor(**tuned_params[TARGET_HIST_LOSS_COST])
     lgbm_hlc.fit(X_train, y_train[TARGET_HIST_LOSS_COST])
     y_pred_hlc = lgbm_hlc.predict(X_val)
     y_pred_hlc = np.maximum(0, y_pred_hlc) # Ensure non-negative predictions
 
     # Calculate Historically Adjusted Loss Cost metrics
     rmse_hlc = mean_squared_error(y_val[TARGET_HIST_LOSS_COST], y_pred_hlc, squared=False)
-    tweedie_dev_hlc = mean_tweedie_deviance(y_val[TARGET_HIST_LOSS_COST], y_pred_hlc, power=1.5)
+    # Use the tweedie_variance_power from the tuned parameters for deviance calculation
+    # Ensure actual values are non-negative and predicted values are strictly positive for tweedie deviance calculation
+    tweedie_dev_hlc = mean_tweedie_deviance(np.maximum(0, y_val[TARGET_HIST_LOSS_COST]), np.maximum(0, y_pred_hlc) + np.finfo(float).eps, power=tuned_params[TARGET_HIST_LOSS_COST].get('tweedie_variance_power', 1.5))
     fold_metrics['hlc_rmse'] = rmse_hlc
     fold_metrics['hlc_tweedie_deviance'] = tweedie_dev_hlc
     print(f"Hist. Adj. Loss Cost - RMSE: {rmse_hlc:.4f}, Tweedie Deviance: {tweedie_dev_hlc:.4f}")
@@ -233,7 +308,8 @@ for fold, (train_index, val_index) in enumerate(skf.split(X, y_stratify_key)):
 
     # --- Train and Evaluate Claim Status Model ---
     print("Training Claim Status model...")
-    lgbm_cs = lgb.LGBMClassifier(objective='binary', metric='auc', random_state=42) # Binary classification for Claim Status
+    # Use loaded tuned parameters for the model
+    lgbm_cs = lgb.LGBMClassifier(**tuned_params[TARGET_CLAIM_STATUS])
     lgbm_cs.fit(X_train, y_train_cs_encoded)
     y_pred_cs_proba = lgbm_cs.predict_proba(X_val)[:, 1] # Probability of the positive class
     y_pred_cs_class = lgbm_cs.predict(X_val) # Predicted class (0 or 1)
@@ -296,9 +372,10 @@ try:
         all_shap_lc = np.concatenate(shap_values_list['loss_cost'], axis=0)
         # Need a background dataset for shap.summary_plot
         # Using a sample of the training data features for the background
-        background_sample_lc = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
+        # background_sample_lc = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
         print("Generating SHAP summary plot for Loss Cost...")
         plt.figure(figsize=(10, 8))
+        # Use X_val from the last fold as background for plotting, or a sample of X
         shap.summary_plot(all_shap_lc, X.iloc[skf.split(X, y_stratify_key).__next__()[1]].columns, show=False) # Use columns from one validation set
         plt.title("SHAP Summary Plot - Loss Cost")
         plt.tight_layout()
@@ -312,7 +389,7 @@ try:
     # Historically Adjusted Loss Cost SHAP Summary Plot
     if shap_values_list['hist_adj_loss_cost']:
         all_shap_hlc = np.concatenate(shap_values_list['hist_adj_loss_cost'], axis=0)
-        background_sample_hlc = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
+        # background_sample_hlc = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
         print("Generating SHAP summary plot for Historically Adjusted Loss Cost...")
         plt.figure(figsize=(10, 8))
         shap.summary_plot(all_shap_hlc, X.iloc[skf.split(X, y_stratify_key).__next__()[1]].columns, show=False) # Use columns from one validation set
@@ -328,7 +405,7 @@ try:
     if shap_values_list['claim_status']:
          # For binary classification, shap_values_list['claim_status'] contains SHAP values for the positive class (index 1)
         all_shap_cs = np.concatenate(shap_values_list['claim_status'], axis=0)
-        background_sample_cs = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
+        # background_sample_cs = X.sample(min(1000, X.shape[0]), random_state=42) # Sample up to 1000 rows
         print("Generating SHAP summary plot for Claim Status...")
         plt.figure(figsize=(10, 8))
         # For classification, the expected_value is often a list, need to handle this for plotting
@@ -348,23 +425,26 @@ except Exception as e:
 
 
 # --- Train Final Models on 100% Data ---
-print("\nTraining final models on 100% training data...")
+print("\nTraining final models on 100% training data using tuned hyperparameters...")
 
 # Final Loss Cost Model
 print("Training final Loss Cost model...")
-final_lgbm_lc = lgb.LGBMRegressor(objective='tweedie', metric='rmse', tweedie_variance_power=1.5, random_state=42)
+# Use loaded tuned parameters for the final model
+final_lgbm_lc = lgb.LGBMRegressor(**tuned_params[TARGET_LOSS_COST])
 final_lgbm_lc.fit(X, y[TARGET_LOSS_COST])
 print("Final Loss Cost model trained.")
 
 # Final Historically Adjusted Loss Cost Model
 print("Training final Historically Adjusted Loss Cost model...")
-final_lgbm_hlc = lgb.LGBMRegressor(objective='tweedie', metric='rmse', tweedie_variance_power=1.5, random_state=42)
+# Use loaded tuned parameters for the final model
+final_lgbm_hlc = lgb.LGBMRegressor(**tuned_params[TARGET_HIST_LOSS_COST])
 final_lgbm_hlc.fit(X, y[TARGET_HIST_LOSS_COST])
 print("Final Historically Adjusted Loss Cost model trained.")
 
 # Final Claim Status Model
 print("Training final Claim Status model...")
-final_lgbm_cs = lgb.LGBMClassifier(objective='binary', metric='auc', random_state=42)
+# Use loaded tuned parameters for the final model
+final_lgbm_cs = lgb.LGBMClassifier(**tuned_params[TARGET_CLAIM_STATUS])
 final_lgbm_cs.fit(X, y_claim_status_encoded) # Use encoded target for training
 print("Final Claim Status model trained.")
 

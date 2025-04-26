@@ -33,7 +33,7 @@ TRAIN_TARGET_FILE = os.path.join(DATA_DIR, 'feature_selected_y_train.csv')
 N_TRIALS = 50  # Adjust as needed
 CV_FOLDS = 5   # Adjust as needed
 RANDOM_STATE = 42
-TWEEDIE_POWER = 1.5 # Keep for potential future use or comparison, but RMSE is the tuning metric now
+TWEEDIE_POWER = 1.5 # This is now just a default/placeholder, the actual power will be tuned
 N_BINS_FOR_STRATIFICATION = 4 # User's desired number of bins (adjust if needed)
 
 
@@ -44,14 +44,14 @@ TARGETS_TO_TUNE = [
         'task_type': 'regression',
         'direction': 'minimize', # Minimize RMSE
         'metric_display': 'RMSE', # Display RMSE
-        'output_filename': f'lgbm_study_Loss_Cost_stratified_RMSE_{N_TRIALS}trials.pkl' # Update filename
+        'output_filename': f'lgbm_study_Loss_Cost_stratified_RMSE_TweedieTune_{N_TRIALS}trials.pkl' # Update filename
     },
     {
         'name': 'Historically_Adjusted_Loss_Cost',
         'task_type': 'regression',
         'direction': 'minimize', # Minimize RMSE
         'metric_display': 'RMSE', # Display RMSE
-        'output_filename': f'lgbm_study_HALC_stratified_RMSE_{N_TRIALS}trials.pkl' # Update filename
+        'output_filename': f'lgbm_study_HALC_stratified_RMSE_TweedieTune_{N_TRIALS}trials.pkl' # Update filename
     },
     {
         'name': 'Claim_Status',
@@ -88,6 +88,9 @@ use_fallback_cv = False # Flag for regression fallback
 def tweedie_deviance_scorer_func(y_true, y_pred):
     """Calculates Mean Tweedie Deviance - standalone function."""
     y_pred = np.maximum(y_pred, 0) # Ensure predictions are non-negative
+    # Note: This scorer uses the fixed TWEEDIE_POWER, not the tuned one from the model params
+    # If you wanted to report Tweedie Deviance for the *tuned* power, you'd need to
+    # pass the trial's tweedie_variance_power to this function or calculate it inside objective
     return mean_tweedie_deviance(y_true, y_pred, power=TWEEDIE_POWER)
 
 def roc_auc_scorer_func(y_true, y_pred_proba):
@@ -127,14 +130,13 @@ def objective(trial):
 
     # Task-Specific Parameters and Model Instantiation
     if current_task_type == 'regression':
-        # Use 'regression_l1' or 'regression_l2' or keep 'tweedie' depending on preference,
-        # but the tuning metric is now RMSE regardless of the objective function.
-        # 'regression_l2' (MSE) is often a good default when optimizing for RMSE.
-        params['objective'] = 'regression_l2' # Using MSE objective, optimizing for RMSE metric
-        params['metric'] = 'rmse' # LightGBM can calculate RMSE internally, but we use custom CV score
-        # params['tweedie_variance_power'] = trial.suggest_float('tweedie_variance_power', 1.1, 1.9) # Remove or keep if still relevant for the objective
+        # Use 'tweedie' objective since we are tuning tweedie_variance_power
+        params['objective'] = 'tweedie'
+        params['metric'] = 'rmse' # LightGBM can calculate RMSE internally, but we use custom CV score for Optuna
+        # Tune the tweedie_variance_power parameter
+        params['tweedie_variance_power'] = trial.suggest_float('tweedie_variance_power', 1.1, 1.9)
         model_class = lgb.LGBMRegressor
-        scorer = rmse_scorer_func # Use the new RMSE scorer
+        scorer = rmse_scorer_func # Use the RMSE scorer for Optuna's objective
         metric_name_for_error = 'RMSE'
         direction_for_error = 'minimize'
         # CV strategy determined in main loop based on binning success/failure
