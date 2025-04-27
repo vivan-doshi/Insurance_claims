@@ -57,7 +57,7 @@ output_ytrain_path = os.path.join(data_dir, 'feature_selected_y_train.csv')
 #   'rfecv_Historically_Adjusted_Loss_Cost': Features selected by RFECV optimizing for HALC.
 #   'rfecv_Claim_Status':    Features selected by RFECV optimizing for Claim_Status.
 #   'none':                  Run selection/plots but do not save filtered data.
-final_selection_method_to_apply = 'lgbm_union_top_n' # <<< SET YOUR CHOICE HERE
+final_selection_method_to_apply = 'none' # <<< SET YOUR CHOICE HERE
 
 # --- Preprocessing Function ---
 def preprocess_data(df, target_cols=None, fit_mode=True):
