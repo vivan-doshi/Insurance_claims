@@ -150,6 +150,6 @@ insurance_test['Young_Bhp_Risk'] = insurance_test['Young_Driver'] * (insurance_t
 
 # creating data
 print("Storing it into csv")
-insurance_test.to_csv('cleaned_data.csv')
-insurance_test.to_pickle('cleaned_data.pkl')
-insurance_test.to_parquet('cleaned_data.parquet')
+insurance_test.to_csv('cleaned_test.csv')
+# insurance_test.to_pickle('cleaned_test.pkl')
+# insurance_test.to_parquet('cleaned_test.parquet')

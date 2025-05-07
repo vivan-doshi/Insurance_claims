@@ -15,7 +15,8 @@ import numpy as np
 from sklearn.metrics import silhouette_score
 
 # changing directory
-os.chdir(os.getcwd()[:-19]+'/01_Data')
+head, _ = os.path.split(os.getcwd())
+os.chdir(head + '/01_Data')
 
 # reading data
 insurance_data = pd.read_csv('insurance_train.csv')
